@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 from types import TracebackType
 from typing import Self
 
-from app.application.dto import OutboxEventInfo, OutboxMessage
+from app.application.dto import OutboxEventInfo, OutboxMessage, PendingEvent
 from app.application.ports import DuplicateKeyError
 from app.domain.entities import Notification, Payment, Subscription
 from app.domain.enums import OutboxStatus
@@ -28,6 +28,11 @@ class StoredOutboxEvent:
     attempts: int = 0
     published_at: datetime | None = None
     last_error: str | None = None
+    available_at: datetime | None = None  # defaults to created_at
+
+    def __post_init__(self) -> None:
+        if self.available_at is None:
+            self.available_at = self.created_at
 
     def info(self) -> OutboxEventInfo:
         return OutboxEventInfo(
@@ -151,6 +156,43 @@ class FakeOutbox:
             if (e.message.aggregate_type, e.message.aggregate_id) == (aggregate_type, aggregate_id)
         ]
         return matching[-1].info() if matching else None
+
+    async def claim_pending(self, limit: int, now: datetime) -> list[PendingEvent]:
+        due = [
+            e
+            for e in self._state.outbox
+            if e.status is OutboxStatus.PENDING and e.available_at and e.available_at <= now
+        ]
+        due.sort(key=lambda e: (e.available_at or e.created_at, e.created_at))
+        return [
+            PendingEvent(
+                id=e.id,
+                event_type=e.message.event_type,
+                routing_key=e.message.routing_key,
+                payload=e.message.payload,
+                headers=e.message.headers,
+                attempts=e.attempts,
+                created_at=e.created_at,
+            )
+            for e in due[:limit]
+        ]
+
+    def _get(self, event_id: uuid.UUID) -> StoredOutboxEvent:
+        return next(e for e in self._state.outbox if e.id == event_id)
+
+    async def mark_published(self, event_id: uuid.UUID, at: datetime) -> None:
+        event = self._get(event_id)
+        event.status, event.published_at, event.last_error = OutboxStatus.PUBLISHED, at, None
+        event.attempts += 1
+
+    async def mark_failed(self, event_id: uuid.UUID, error: str, retry_at: datetime | None) -> None:
+        event = self._get(event_id)
+        event.attempts += 1
+        event.last_error = error
+        if retry_at is None:
+            event.status = OutboxStatus.DEAD
+        else:
+            event.available_at = retry_at
 
 
 class FakeUnitOfWork:

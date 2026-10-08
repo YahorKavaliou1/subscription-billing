@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-08
-- Implementation: **Write side done**; outbox relay planned
+- Implementation: **Done**
 
 ## Context
 
@@ -32,7 +32,13 @@ Option 4.
 
 ## Where in code
 
-Done: `RegisterPayment` writes the payment and `OutboxMessage` in one `UnitOfWork`;
-`OutboxEventModel` with a partial index on pending rows; `SqlOutboxRepository`.
-Test: `test_failure_after_payment_insert_rolls_back_everything`.
-Planned: `workers/relay.py` (`FOR UPDATE SKIP LOCKED`, publisher confirms, retry with backoff).
+- Write side: `RegisterPayment` writes the payment and `OutboxMessage` in one `UnitOfWork`;
+  `OutboxEventModel` with a partial index on pending rows; `SqlOutboxRepository.add()`.
+- Relay: `OutboxRelay` (`application/relay.py`) claims due events with
+  `FOR UPDATE SKIP LOCKED`, publishes with publisher confirms (`RabbitEventPublisher`),
+  retries rejected messages with exponential backoff and marks them `dead` after
+  `APP_RELAY_MAX_ATTEMPTS`. A broker outage does not consume attempts.
+  Process: `workers/relay.py`.
+- Tests: `test_failure_after_payment_insert_rolls_back_everything`,
+  `test_payment_event_reaches_the_queue`, `test_unroutable_event_is_retried_not_lost`,
+  `test_concurrent_relays_publish_each_event_once`, `test_broker_outage_does_not_count_attempts`.

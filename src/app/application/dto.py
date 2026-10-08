@@ -66,6 +66,19 @@ class OutboxEventInfo:
     last_error: str | None
 
 
+@dataclass(frozen=True, slots=True)
+class PendingEvent:
+    """Outbox event claimed by the relay for publishing."""
+
+    id: uuid.UUID
+    event_type: str
+    routing_key: str
+    payload: dict[str, Any]
+    headers: dict[str, Any]
+    attempts: int
+    created_at: datetime
+
+
 # --- Views ---------------------------------------------------------------------------
 
 

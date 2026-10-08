@@ -2,9 +2,10 @@
 
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 from typing import Protocol
 
-from app.application.dto import OutboxEventInfo, OutboxMessage
+from app.application.dto import OutboxEventInfo, OutboxMessage, PendingEvent
 from app.domain.entities import Notification, Payment, Subscription
 
 
@@ -46,3 +47,19 @@ class OutboxRepository(Protocol):
     async def get_latest_for_aggregate(
         self, aggregate_type: str, aggregate_id: str
     ) -> OutboxEventInfo | None: ...
+
+    # --- Relay side ----------------------------------------------------------------
+
+    async def claim_pending(self, limit: int, now: datetime) -> list[PendingEvent]:
+        """Lock up to `limit` pending events that are due, oldest first.
+
+        Rows locked by another relay are skipped, so several relays never
+        publish the same event concurrently.
+        """
+        ...
+
+    async def mark_published(self, event_id: uuid.UUID, at: datetime) -> None: ...
+
+    async def mark_failed(self, event_id: uuid.UUID, error: str, retry_at: datetime | None) -> None:
+        """Count a failed attempt; `retry_at=None` means give up (status dead)."""
+        ...
