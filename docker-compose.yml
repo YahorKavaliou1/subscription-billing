@@ -81,13 +81,13 @@ services:
 
   notification-worker:
     <<: *app
-    command: ["faststream", "run", "app.workers.consumers.notifications:app"]
+    command: ["python", "-m", "app.workers.consumers.notifications"]
     depends_on:
       migrate: { condition: service_completed_successfully }
 
   renewal-worker:
     <<: *app
-    command: ["faststream", "run", "app.workers.consumers.renewal:app"]
+    command: ["python", "-m", "app.workers.consumers.renewal"]
     depends_on:
       migrate: { condition: service_completed_successfully }
 

@@ -17,6 +17,45 @@ Backend for subscription payments and user notifications.
 delivered at least once, even if RabbitMQ is down at the moment of payment; consumers
 ignore duplicates. Repeated requests from the provider are idempotent.
 
+## How it works
+
+```
+POST /payments ─▶ api ──one transaction──▶ PostgreSQL: payments + outbox_events (pending)
+                                                │
+                     outbox-relay ◀─────────────┘ publishes, marks "published"
+                          │
+                          ▼
+                 RabbitMQ: billing.events
+                    ├─ notifications.send ──▶ notification-worker ─▶ user is notified
+                    └─ subscriptions.renewal ─▶ renewal-worker ───▶ subscription extended
+```
+
+**Processes**
+
+| Process | What it does |
+|---|---|
+| `api` | Validates requests, saves subscriptions and payments. A payment and its event are written in one transaction ([ADR 0004](docs/adr/0004-transactional-outbox.md)) |
+| `outbox-relay` | Publishes pending events to RabbitMQ and waits for the broker's confirmation. While RabbitMQ is down, events wait in the database |
+| `notification-worker` | On `payment.succeeded` / `payment.failed`: creates the notification, sends it and stores `sent_at` |
+| `renewal-worker` | On `payment.succeeded`: extends `expected_expires_on` by `day_count` days ([ADR 0003](docs/adr/0003-day-count-is-subscription-period.md)) and reschedules reminders |
+| `scheduler` (planned) | Turns due reminders into events for `notification-worker` ([ADR 0005](docs/adr/0005-notification-schedule-in-database.md)) |
+
+**What happens on failures**
+
+- **RabbitMQ is down:** the API still accepts payments; the relay retries and publishes once the broker is back.
+- **A message is delivered twice:** consumers detect it (`inbox_messages`, notification status) and do nothing,
+  so a subscription is never renewed twice ([ADR 0006](docs/adr/0006-at-least-once-delivery-idempotent-consumers.md)).
+- **Sending a notification fails:** the message goes to a retry queue and comes back after a delay.
+  After `APP_CONSUMER_MAX_DELIVERY_ATTEMPTS` the notification is marked `failed` and the message is moved
+  to a parking queue (`*.parking`) for manual review.
+- **A message is malformed:** it is parked immediately, without retries.
+
+Every step can be traced by one id: the `X-Request-ID` of the original HTTP request appears in the logs
+of the API and both workers.
+
+The state of each step is visible through the API: `GET /api/v1/payments/{id}` shows whether the event
+was published (`event.status`) and whether the user was notified (`notification.sent_at`).
+
 ## Design decisions
 
 Key architectural decisions are recorded as short ADRs (context, options, decision, consequences)
