@@ -115,3 +115,34 @@ GitHub Actions runs on every push to `main` and on pull requests:
 - lock file check, ruff lint and format check, mypy;
 - pytest with coverage (PostgreSQL and RabbitMQ via testcontainers);
 - `docker compose config` validation and Docker image build.
+
+## Tests
+
+```bash
+uv run pytest                      # all tests; integration tests start PostgreSQL via testcontainers (Docker required)
+uv run pytest tests/unit           # fast, no Docker
+TEST_DATABASE_URL=postgresql+asyncpg://billing:billing@localhost:5432/billing_test uv run pytest
+                                   # reuse an existing database instead of a container
+```
+
+**Unit tests** (`tests/unit/`): pure Python, no database, run in about a second.
+
+| File | What it checks |
+|---|---|
+| `test_config.py` | Settings load from environment, required variables, validation, secrets hidden in `repr` |
+| `test_logging.py` | JSON log format, `correlation_id` in every record, stdlib loggers share the format |
+| `test_domain_value_objects.py` | `Money`: positive exact `Decimal`, ISO currency, no floats; timezone-aware datetimes |
+| `test_domain_entities.py` | Subscription invariants, ownership and renewal; payment idempotency check; notification state machine |
+| `test_domain_policies.py` | Reminder schedule: offsets, skipping past moments, rescheduling without touching history |
+| `test_use_cases_subscriptions.py` | Create/update/read a subscription: idempotency, rescheduling, ownership, concurrent create |
+| `test_use_cases_payments.py` | Payment + event saved together, rollback on failure, idempotent replay, conflicts, payment status |
+
+Use-case tests run against in-memory fakes (`tests/unit/fakes.py`) that commit state only on `commit()`, like a real transaction.
+
+**Integration tests** (`tests/integration/`): real PostgreSQL, schema created by Alembic migrations.
+
+| File | What it checks |
+|---|---|
+| `test_migrations.py` | Migrations match the ORM models; downgrade and upgrade are repeatable |
+| `test_schema.py` | Database constraints: CHECKs, unique keys, foreign keys, exact decimals, optimistic locking |
+| `test_use_cases_db.py` | Use cases end to end: a crash between payment and event leaves neither; concurrent duplicate payments and subscription updates produce exactly one consistent result; delivery status of a payment |
