@@ -13,7 +13,17 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, create_async_engine
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+
+from app.application.ports import UnitOfWorkFactory
+from app.infrastructure.db.session import create_session_factory
+from app.infrastructure.db.uow import make_uow_factory
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -76,3 +86,31 @@ async def session(engine: AsyncEngine) -> AsyncIterator[AsyncSession]:
         finally:
             await session.close()
             await transaction.rollback()
+
+
+@pytest.fixture
+async def clean_db(engine: AsyncEngine) -> AsyncIterator[None]:
+    """Empty tables for tests that commit for real (use cases, concurrency)."""
+
+    async def truncate() -> None:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "TRUNCATE subscriptions, notifications, payments, outbox_events, "
+                    "inbox_messages CASCADE"
+                )
+            )
+
+    await truncate()
+    yield
+    await truncate()
+
+
+@pytest.fixture
+def session_factory(engine: AsyncEngine, clean_db: None) -> async_sessionmaker[AsyncSession]:
+    return create_session_factory(engine)
+
+
+@pytest.fixture
+def uow_factory(session_factory: async_sessionmaker[AsyncSession]) -> UnitOfWorkFactory:
+    return make_uow_factory(session_factory)
