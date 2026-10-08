@@ -2,7 +2,7 @@ name: subscription-billing
 
 x-app: &app
   build: .
-  env_file: ..env
+  env_file: .env
   depends_on:
     postgres: { condition: service_healthy }
     rabbitmq-init: { condition: service_completed_successfully }
