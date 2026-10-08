@@ -21,6 +21,15 @@ class PaymentStatus(StrEnum):
     FAILED = "failed"
 
 
+class NotificationEvent(StrEnum):
+    """What a notification tells the user; also the event name in history."""
+
+    EXPIRING_SOON = "subscription.expiring_soon"
+    EXPIRED = "subscription.expired"
+    PAYMENT_SUCCEEDED = "payment.succeeded"
+    PAYMENT_FAILED = "payment.failed"
+
+
 class OutboxStatus(StrEnum):
     PENDING = "pending"  # not yet confirmed by the broker
     PUBLISHED = "published"  # broker confirmed the message

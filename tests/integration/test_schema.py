@@ -161,7 +161,12 @@ async def test_notification_dedup_key_is_unique(session: AsyncSession) -> None:
     await add(session, first)
     assert first.status is NotificationStatus.SCHEDULED
 
-    await assert_violates(session, "uq_notifications_dedup_key", notification())
+    await assert_violates(session, "uq_notifications_dedup_key_active", notification())
+
+    # Once cancelled, the same reminder can be scheduled again (expiry moved back)
+    first.status = NotificationStatus.CANCELLED
+    await session.flush()
+    await add(session, notification())
 
 
 async def test_inbox_rejects_already_processed_message(session: AsyncSession) -> None:

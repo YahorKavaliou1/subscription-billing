@@ -19,6 +19,13 @@ class NotificationModel(TimestampMixin, Base):
             "scheduled_for",
             postgresql_where=text("status = 'scheduled'"),
         ),
+        # Idempotent creation; cancelled rows are history and may repeat a key
+        Index(
+            "uq_notifications_dedup_key_active",
+            "dedup_key",
+            unique=True,
+            postgresql_where=text("status <> 'cancelled'"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(
@@ -39,5 +46,5 @@ class NotificationModel(TimestampMixin, Base):
     sent_at: Mapped[datetime | None]
     attempts: Mapped[int] = mapped_column(default=0, server_default="0")
     last_error: Mapped[str | None] = mapped_column(Text)
-    # Makes notification creation idempotent, e.g. "<subscription>:<event>:<scheduled_for>"
-    dedup_key: Mapped[str] = mapped_column(String(255), unique=True)
+    # "reminder:<subscription>:<event>:<scheduled_for>" or "payment:<payment_id>:<event>"
+    dedup_key: Mapped[str] = mapped_column(String(255))
