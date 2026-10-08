@@ -17,6 +17,21 @@ Backend for subscription payments and user notifications.
 delivered at least once, even if RabbitMQ is down at the moment of payment; consumers
 ignore duplicates. Repeated requests from the provider are idempotent.
 
+## Design decisions
+
+Key architectural decisions are recorded as short ADRs (context, options, decision, consequences)
+in [`docs/adr/`](docs/adr/README.md):
+
+1. [Payment idempotency by `provider_payment`](docs/adr/0001-payment-idempotency-by-provider-payment.md)
+2. [Notification `dedup_key` unique only among non-cancelled rows](docs/adr/0002-dedup-key-unique-among-active-notifications.md)
+3. [`day_count` is the subscription period length](docs/adr/0003-day-count-is-subscription-period.md)
+4. [Transactional outbox for events](docs/adr/0004-transactional-outbox.md)
+5. [Notification schedule stored in the database](docs/adr/0005-notification-schedule-in-database.md)
+6. [At-least-once delivery with idempotent consumers](docs/adr/0006-at-least-once-delivery-idempotent-consumers.md)
+
+Requirements analysis: [`docs/analysis/requirements.md`](docs/analysis/requirements.md).
+API schema: [`docs/openapi.json`](docs/openapi.json).
+
 ## Architecture
 
 | Layer | Contents |
