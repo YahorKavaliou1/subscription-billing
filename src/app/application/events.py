@@ -4,6 +4,7 @@ from datetime import datetime
 
 from app.application.dto import OutboxMessage
 from app.domain.entities import Payment, Subscription
+from app.domain.value_objects import format_decimal
 
 SCHEMA_VERSION = 1
 PAYMENT_AGGREGATE = "payment"
@@ -26,7 +27,7 @@ def payment_result_event(
             "user_id": subscription.user_id,
             "provider_payment": payment.provider_payment,
             # Decimal as string: JSON numbers would lose precision
-            "amount": str(payment.money.amount),
+            "amount": format_decimal(payment.money.amount),
             "currency": payment.money.currency,
             "status": payment.status.value,
             "occurred_at": occurred_at.isoformat(),

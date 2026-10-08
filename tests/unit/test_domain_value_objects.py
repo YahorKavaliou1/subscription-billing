@@ -4,7 +4,7 @@ from decimal import Decimal
 import pytest
 
 from app.domain.errors import InvalidValueError
-from app.domain.value_objects import Money, require_aware_utc, require_id
+from app.domain.value_objects import Money, format_decimal, require_aware_utc, require_id
 
 
 class TestMoney:
@@ -72,3 +72,11 @@ class TestHelpers:
     def test_require_id_rejects_invalid(self, value: str) -> None:
         with pytest.raises(InvalidValueError):
             require_id(value, "id")
+
+
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [("12.5000", "12.5"), ("100.0000", "100"), ("0.0100", "0.01"), ("9.99", "9.99")],
+)
+def test_format_decimal(value: str, text: str) -> None:
+    assert format_decimal(Decimal(value)) == text

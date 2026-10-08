@@ -60,6 +60,12 @@ def configure_logging(level: str = "INFO", *, json: bool = True) -> None:
     root.addHandler(handler)
     root.setLevel(level.upper())
 
+    # uvicorn installs its own handlers; route its records through ours instead
+    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+        uvicorn_logger = logging.getLogger(name)
+        uvicorn_logger.handlers.clear()
+        uvicorn_logger.propagate = True
+
     for name, min_level in _THIRD_PARTY_LEVELS.items():
         logging.getLogger(name).setLevel(max(min_level, root.level))
 

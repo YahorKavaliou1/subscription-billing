@@ -108,6 +108,77 @@ Application settings use the `APP_` prefix.
 | `APP_CONSUMER_*` | Consumer delivery attempts and prefetch |
 | `APP_NOTIFICATION_SENDER` | Notification sender implementation (`log`, `email`) |
 
+## API
+
+Base URL: `http://localhost:8000`. Interactive docs: `/docs`.
+
+### Headers
+
+| Header | Required | Purpose |
+|---|---|---|
+| `X-API-Key` | Yes, for `/api/v1/*` | Access key. Must match `APP_API_KEY` from `.env`; otherwise `401` |
+| `X-Request-ID` | No | Your id for the request. Returned in the response and written to all logs of this request. Generated if missing |
+| `Content-Type: application/json` | For `PUT` / `POST` | Request body format |
+
+The response always contains `X-Request-ID`. `POST /payments` also returns `Location` with the payment URL.
+
+### Endpoints
+
+**1. Create or update a subscription.** Schedules reminders before expiry.
+Returns `201` if created, `200` if updated.
+
+```bash
+curl -X PUT localhost:8000/api/v1/subscriptions/sub-1 \
+  -H 'X-API-Key: change-me' -H 'Content-Type: application/json' \
+  -d '{"user_id": "user-1", "day_count": 30, "expected_expires_on": "2026-12-01T12:00:00Z"}'
+```
+
+**2. Get a subscription** with the history of its notifications.
+
+```bash
+curl localhost:8000/api/v1/subscriptions/sub-1 -H 'X-API-Key: change-me'
+```
+
+**3. Record a payment.** The payment and its event are saved together.
+Returns `201` for a new payment, `200` if the same payment was already recorded,
+`409` if the same `provider_payment` comes with different data.
+
+```bash
+curl -X POST localhost:8000/api/v1/payments \
+  -H 'X-API-Key: change-me' -H 'Content-Type: application/json' \
+  -d '{"subscription_id": "sub-1", "provider_payment": "pi_123", "amount": "9.99", "currency": "EUR", "status": "succeeded"}'
+```
+
+**4. Get payment status** and whether its event and notification were delivered.
+
+```bash
+curl localhost:8000/api/v1/payments/<payment_id> -H 'X-API-Key: change-me'
+curl 'localhost:8000/api/v1/payments?provider_payment=pi_123' -H 'X-API-Key: change-me'
+```
+
+In the response, `event.status` shows whether the event reached RabbitMQ
+(`pending` → `published`), and `notification.sent_at` shows when the user was notified.
+
+**Health checks** (no key needed): `GET /health/live`, `GET /health/ready`.
+
+### Errors
+
+Errors use one format (`application/problem+json`):
+
+```json
+{"title": "Not Found", "status": 404, "detail": "Subscription 'sub-9' not found", "instance": "/api/v1/subscriptions/sub-9"}
+```
+
+| Status | Meaning |
+|---|---|
+| `401` | Missing or wrong `X-API-Key` |
+| `404` | Subscription or payment not found |
+| `409` | Conflict: subscription belongs to another user, or payment data differs from the first request |
+| `422` | Invalid input; the `errors` field lists the bad fields |
+
+Rules: dates must include a timezone; `amount` is a positive number with at most 4 decimals
+(send it as a string to keep it exact); `currency` is a 3-letter code.
+
 ## CI
 
 GitHub Actions runs on every push to `main` and on pull requests:

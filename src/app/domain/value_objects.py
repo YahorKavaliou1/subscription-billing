@@ -30,6 +30,11 @@ def require_id(value: str, field: str, max_length: int = MAX_ID_LENGTH) -> str:
     return stripped
 
 
+def format_decimal(value: Decimal) -> str:
+    """Canonical text form: no trailing zeros, never exponent notation ("12.5", "100")."""
+    return format(value.normalize(), "f")
+
+
 @dataclass(frozen=True, slots=True)
 class Money:
     """Positive amount in an ISO 4217 currency; exact decimal, never float."""
