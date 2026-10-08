@@ -1,10 +1,12 @@
 import uuid
 from collections.abc import Sequence
+from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.entities import Notification
+from app.domain.enums import NotificationStatus
 from app.infrastructure.db import mappers
 from app.infrastructure.db.models import NotificationModel
 from app.infrastructure.db.repositories._common import flush
@@ -25,6 +27,20 @@ class SqlNotificationRepository:
     async def get(self, notification_id: uuid.UUID) -> Notification | None:
         model = await self._session.get(NotificationModel, notification_id)
         return mappers.notification_to_entity(model) if model else None
+
+    async def claim_due(self, limit: int, now: datetime) -> list[Notification]:
+        models = await self._session.scalars(
+            select(NotificationModel)
+            .where(
+                NotificationModel.status == NotificationStatus.SCHEDULED,
+                NotificationModel.scheduled_for <= now,
+            )
+            .order_by(NotificationModel.scheduled_for)
+            .limit(limit)
+            # Served by the partial index ix_notifications_due; locked rows are skipped
+            .with_for_update(skip_locked=True)
+        )
+        return [mappers.notification_to_entity(m) for m in models]
 
     async def get_for_payment(self, payment_id: uuid.UUID) -> Notification | None:
         model = await self._session.scalar(

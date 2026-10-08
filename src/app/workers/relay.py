@@ -5,7 +5,6 @@ can run at once: rows are claimed with FOR UPDATE SKIP LOCKED.
 """
 
 import asyncio
-import signal
 from contextlib import suppress
 
 from faststream.rabbit import RabbitBroker
@@ -21,50 +20,34 @@ from app.infrastructure.broker.rabbit import (
 from app.infrastructure.db.session import create_engine, create_session_factory
 from app.infrastructure.db.uow import make_uow_factory
 from app.infrastructure.observability.logging import configure_logging, get_logger
+from app.workers.polling import PollingWorker
 
 log = get_logger("app.workers.relay")
 
 BROKER_RETRY_MAX_SECONDS = 30.0
 
 
-class RelayWorker:
+class RelayWorker(PollingWorker):
+    name = "relay"
+
     def __init__(self, relay: OutboxRelay, settings: Settings) -> None:
+        super().__init__()
         self._relay = relay
         self._settings = settings
-        self._stopping = asyncio.Event()
+        self._broker_backoff = 1.0
 
-    @property
-    def stopping(self) -> asyncio.Event:
-        return self._stopping
-
-    def stop(self) -> None:
-        self._stopping.set()
-
-    async def run(self) -> None:
-        broker_backoff = 1.0
-        while not self._stopping.is_set():
-            try:
-                result = await self._relay.run_once()
-            except Exception:
-                # Database hiccup or a bug: log and keep the process alive
-                log.exception("relay.iteration_failed")
-                await self._sleep(self._settings.relay_poll_interval_seconds * 10)
-                continue
-
-            self._log(result)
-            if result.broker_unavailable:
-                await self._sleep(broker_backoff)
-                broker_backoff = min(broker_backoff * 2, BROKER_RETRY_MAX_SECONDS)
-                continue
-            broker_backoff = 1.0
-            # A full batch means more events are waiting: continue without a pause
-            if result.claimed < self._settings.relay_batch_size:
-                await self._sleep(self._settings.relay_poll_interval_seconds)
-
-    async def _sleep(self, seconds: float) -> None:
-        # Wakes up immediately on shutdown
-        with suppress(TimeoutError):
-            await asyncio.wait_for(self._stopping.wait(), timeout=seconds)
+    async def iterate(self) -> float:
+        result = await self._relay.run_once()
+        self._log(result)
+        if result.broker_unavailable:
+            delay = self._broker_backoff
+            self._broker_backoff = min(self._broker_backoff * 2, BROKER_RETRY_MAX_SECONDS)
+            return delay
+        self._broker_backoff = 1.0
+        # A full batch means more events are waiting: continue without a pause
+        if result.claimed >= self._settings.relay_batch_size:
+            return 0
+        return self._settings.relay_poll_interval_seconds
 
     @staticmethod
     def _log(result: RelayResult) -> None:
@@ -115,10 +98,7 @@ async def main() -> None:
         ),
     )
     worker = RelayWorker(relay, settings)
-
-    loop = asyncio.get_running_loop()
-    for sig in (signal.SIGTERM, signal.SIGINT):
-        loop.add_signal_handler(sig, worker.stop)
+    worker.install_signal_handlers()
 
     try:
         if await connect_with_retry(broker, worker.stopping):

@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from app.application.dto import RegisterPaymentCommand, UpsertSubscriptionCommand
 from app.application.ports import OutgoingNotification, SystemClock, UnitOfWorkFactory
 from app.application.relay import OutboxRelay
+from app.application.scheduler import ReminderScheduler
 from app.application.use_cases import (
     GetPaymentStatus,
     GetSubscription,
@@ -269,3 +270,41 @@ async def test_poison_message_is_parked_immediately(rabbitmq_url: str) -> None:
         )
 
     await eventually(both_parked, within=5)
+
+
+class _FixedClock:
+    def __init__(self, now: datetime) -> None:
+        self._now = now
+
+    def now(self) -> datetime:
+        return self._now
+
+
+@pytest.mark.usefixtures("consumers")
+async def test_due_reminder_is_delivered_to_the_user(
+    uow_factory: UnitOfWorkFactory, relay: OutboxRelay, sender: RecordingSender
+) -> None:
+    await UpsertSubscription(uow_factory, POLICY, CLOCK).execute(
+        UpsertSubscriptionCommand(
+            subscription_id="sub-1", user_id="user-1", day_count=30, expected_expires_on=EXPIRES
+        )
+    )
+    # Scheduler runs at the moment the T-3d reminder becomes due
+    scheduler = ReminderScheduler(uow_factory, _FixedClock(EXPIRES - timedelta(days=2)))
+
+    assert (await scheduler.run_once()).enqueued == 1
+    assert (await relay.run_once()).published == 1
+
+    async def reminder_sent() -> bool:
+        view = await GetSubscription(uow_factory).execute("sub-1")
+        return view.notifications[0].status is NotificationStatus.SENT
+
+    await eventually(reminder_sent)
+
+    view = await GetSubscription(uow_factory).execute("sub-1")
+    assert view.notifications[0].sent_at is not None
+    assert [n.status for n in view.notifications[1:]] == [NotificationStatus.SCHEDULED] * 2
+    [sent] = sender.sent
+    assert sent.event_name.value == "subscription.expiring_soon"
+    assert sent.user_id == "user-1"
+    assert sent.data == {"expected_expires_on": EXPIRES.isoformat()}

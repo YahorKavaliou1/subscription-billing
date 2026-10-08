@@ -26,6 +26,13 @@ class NotificationRepository(Protocol):
 
     async def get(self, notification_id: uuid.UUID) -> Notification | None: ...
 
+    async def claim_due(self, limit: int, now: datetime) -> list[Notification]:
+        """Lock up to `limit` scheduled notifications whose time has come, earliest first.
+
+        Rows locked by another scheduler are skipped (FOR UPDATE SKIP LOCKED).
+        """
+        ...
+
     async def get_for_payment(self, payment_id: uuid.UUID) -> Notification | None: ...
 
     async def add_many(self, notifications: Sequence[Notification]) -> None: ...

@@ -109,6 +109,12 @@ class FakeNotifications:
     async def get(self, notification_id: uuid.UUID) -> Notification | None:
         return self._state.notifications.get(notification_id)
 
+    async def claim_due(self, limit: int, now: datetime) -> list[Notification]:
+        due = [
+            n for n in self._state.notifications.values() if n.is_pending and n.scheduled_for <= now
+        ]
+        return sorted(due, key=lambda n: n.scheduled_for)[:limit]
+
     async def get_for_payment(self, payment_id: uuid.UUID) -> Notification | None:
         return next(
             (n for n in self._state.notifications.values() if n.payment_id == payment_id), None

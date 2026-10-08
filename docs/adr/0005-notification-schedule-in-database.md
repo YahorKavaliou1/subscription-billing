@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-08
-- Implementation: **Data model and policy done**; scheduler process planned
+- Implementation: **Done**
 
 ## Context
 
@@ -32,5 +32,11 @@ are cancelled, missing ones are created.
 
 ## Where in code
 
-Done: `NotificationModel` with `ix_notifications_due`, `NotificationSchedulePolicy`,
-`UpsertSubscription`. Planned: `workers/scheduler.py`.
+- Schedule: `NotificationModel` with the partial index `ix_notifications_due`,
+  `NotificationSchedulePolicy`, `UpsertSubscription`, `RenewSubscriptionOnPayment`.
+- Scheduler: `ReminderScheduler` (`application/scheduler.py`) claims due reminders with
+  `FOR UPDATE SKIP LOCKED`, marks them `enqueued` and writes `notification.*` events to the
+  outbox in one transaction; the expiry reminder also marks a non-renewed subscription
+  `expired`. Process: `workers/scheduler.py` (shares the `PollingWorker` loop with the relay).
+- Tests: `tests/unit/test_scheduler.py`, `test_concurrent_schedulers_enqueue_each_reminder_once`,
+  `test_due_reminder_is_delivered_to_the_user`.

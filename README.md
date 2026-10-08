@@ -38,7 +38,7 @@ POST /payments ─▶ api ──one transaction──▶ PostgreSQL: payments + 
 | `outbox-relay` | Publishes pending events to RabbitMQ and waits for the broker's confirmation. While RabbitMQ is down, events wait in the database |
 | `notification-worker` | On `payment.succeeded` / `payment.failed`: creates the notification, sends it and stores `sent_at` |
 | `renewal-worker` | On `payment.succeeded`: extends `expected_expires_on` by `day_count` days ([ADR 0003](docs/adr/0003-day-count-is-subscription-period.md)) and reschedules reminders |
-| `scheduler` (planned) | Turns due reminders into events for `notification-worker` ([ADR 0005](docs/adr/0005-notification-schedule-in-database.md)) |
+| `scheduler` | Turns due reminders into events for `notification-worker` ([ADR 0005](docs/adr/0005-notification-schedule-in-database.md)) |
 
 **What happens on failures**
 
