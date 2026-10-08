@@ -1,3 +1,33 @@
+
+Backend for subscription payments and user notifications.
+
+## What it does
+
+- **Subscriptions.** Creates or updates a user's subscription and schedules reminders
+  before it expires (3 days, 1 day, and on the expiry date). When the expiry date
+  changes, pending reminders are rescheduled; sent ones stay in the history.
+- **Payments.** Records a payment from the provider and emits an event about its result.
+  A successful payment extends the subscription by its period; the user is notified
+  about success or failure.
+- **Diagnostics.** For any payment shows whether its event reached the message broker
+  and whether the user was notified.
+
+**Key guarantee:** a payment and its event are saved in one database transaction
+(transactional outbox), so a payment is never recorded without its event. Events are
+delivered at least once, even if RabbitMQ is down at the moment of payment; consumers
+ignore duplicates. Repeated requests from the provider are idempotent.
+
+## Architecture
+
+| Layer | Contents |
+|---|---|
+| `domain/` | Entities (`Subscription`, `Payment`, `Notification`), `Money`, reminder scheduling policy. Pure Python, no I/O |
+| `application/` | Use cases (one per feature) and ports: `UnitOfWork`, repositories, `Clock`, `NotificationSender` |
+| `infrastructure/` | PostgreSQL (SQLAlchemy, Alembic), RabbitMQ, notification senders, logging |
+| `api/`, `workers/` | FastAPI endpoints; outbox relay, reminder scheduler and FastStream consumers |
+
+Processes: `api` → PostgreSQL ← `scheduler`; `outbox-relay` → RabbitMQ →
+`notification-worker`, `renewal-worker`.
 ## Quick start
 
 Requirements: Docker with Compose v2.
