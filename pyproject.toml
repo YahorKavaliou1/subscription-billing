@@ -35,7 +35,7 @@ dev = [
 ]
 
 [project.scripts]
-# Точки входа процессов (см. docs/architecture.md, раздел «Компоненты»)
+# Process entry points (see docs/architecture.md, "Components" section)
 billing-api = "app.api.main:run"
 billing-relay = "app.workers.relay:run"
 billing-scheduler = "app.workers.scheduler:run"
@@ -55,7 +55,7 @@ src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "DTZ", "T20", "SIM", "RUF", "ASYNC", "PT", "S"]
-ignore = ["S101"]  # assert в тестах
+ignore = ["S101"]  # assert in tests
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "PT011"]
@@ -73,11 +73,12 @@ packages = ["app"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 pythonpath = ["src"]
 markers = [
-    "integration: требует реальные Postgres/RabbitMQ (testcontainers)",
-    "e2e: поднимает весь стек через docker compose",
+    "integration: requires real Postgres/RabbitMQ (testcontainers)",
+    "e2e: brings up the full stack via docker compose",
 ]
 addopts = "-ra --strict-markers"
 
