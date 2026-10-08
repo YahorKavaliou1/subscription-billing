@@ -3,6 +3,7 @@ from app.application.ports.errors import ConcurrentUpdateError, DuplicateKeyErro
 from app.application.ports.event_publisher import BrokerUnavailableError, EventPublisher
 from app.application.ports.notification_sender import NotificationSender, OutgoingNotification
 from app.application.ports.repositories import (
+    InboxRepository,
     NotificationRepository,
     OutboxRepository,
     PaymentRepository,
@@ -16,6 +17,7 @@ __all__ = [
     "ConcurrentUpdateError",
     "DuplicateKeyError",
     "EventPublisher",
+    "InboxRepository",
     "NotificationRepository",
     "NotificationSender",
     "OutboxRepository",

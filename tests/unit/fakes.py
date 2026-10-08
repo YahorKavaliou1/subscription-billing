@@ -52,6 +52,7 @@ class State:
     notifications: dict[uuid.UUID, Notification] = field(default_factory=dict)
     payments: dict[uuid.UUID, Payment] = field(default_factory=dict)
     outbox: list[StoredOutboxEvent] = field(default_factory=list)
+    inbox: set[tuple[str, str]] = field(default_factory=set)
 
 
 class FakeClock:
@@ -104,6 +105,9 @@ class FakeNotifications:
             n for n in self._state.notifications.values() if n.subscription_id == subscription_id
         ]
         return sorted(found, key=lambda n: n.scheduled_for)
+
+    async def get(self, notification_id: uuid.UUID) -> Notification | None:
+        return self._state.notifications.get(notification_id)
 
     async def get_for_payment(self, payment_id: uuid.UUID) -> Notification | None:
         return next(
@@ -195,6 +199,21 @@ class FakeOutbox:
             event.available_at = retry_at
 
 
+class FakeInbox:
+    def __init__(self, state: State) -> None:
+        self._state = state
+
+    async def add(self, consumer: str, message_id: str) -> bool:
+        key = (consumer, message_id)
+        if key in self._state.inbox:
+            return False
+        self._state.inbox.add(key)
+        return True
+
+    async def exists(self, consumer: str, message_id: str) -> bool:
+        return (consumer, message_id) in self._state.inbox
+
+
 class FakeUnitOfWork:
     def __init__(self, database: FakeDatabase) -> None:
         self._db = database
@@ -203,6 +222,7 @@ class FakeUnitOfWork:
         self.notifications = FakeNotifications(self._working)
         self.payments = FakePayments(self._working)
         self.outbox = FakeOutbox(self._working, database.clock)
+        self.inbox = FakeInbox(self._working)
 
     async def __aenter__(self) -> Self:
         return self

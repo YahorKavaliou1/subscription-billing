@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from app.application.ports import UnitOfWorkFactory
 from app.infrastructure.db.errors import translate_integrity_errors
 from app.infrastructure.db.repositories import (
+    SqlInboxRepository,
     SqlNotificationRepository,
     SqlOutboxRepository,
     SqlPaymentRepository,
@@ -26,6 +27,7 @@ class SqlAlchemyUnitOfWork:
         self.notifications = SqlNotificationRepository(self._session)
         self.payments = SqlPaymentRepository(self._session)
         self.outbox = SqlOutboxRepository(self._session)
+        self.inbox = SqlInboxRepository(self._session)
         return self
 
     async def __aexit__(

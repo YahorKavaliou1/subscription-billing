@@ -22,6 +22,10 @@ class SqlNotificationRepository:
         )
         return [mappers.notification_to_entity(m) for m in models]
 
+    async def get(self, notification_id: uuid.UUID) -> Notification | None:
+        model = await self._session.get(NotificationModel, notification_id)
+        return mappers.notification_to_entity(model) if model else None
+
     async def get_for_payment(self, payment_id: uuid.UUID) -> Notification | None:
         model = await self._session.scalar(
             select(NotificationModel)

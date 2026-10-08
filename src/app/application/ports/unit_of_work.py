@@ -5,6 +5,7 @@ from types import TracebackType
 from typing import Protocol, Self
 
 from app.application.ports.repositories import (
+    InboxRepository,
     NotificationRepository,
     OutboxRepository,
     PaymentRepository,
@@ -35,6 +36,9 @@ class UnitOfWork(Protocol):
 
     @property
     def outbox(self) -> OutboxRepository: ...
+
+    @property
+    def inbox(self) -> InboxRepository: ...
 
     async def __aenter__(self) -> Self: ...
 

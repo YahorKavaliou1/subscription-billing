@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-08
-- Implementation: **Database schema done**; consumers planned
+- Implementation: **Done**
 
 ## Context
 
@@ -34,7 +34,11 @@ Option 3.
 
 ## Where in code
 
-Done: `InboxMessageModel` (`infrastructure/db/models/inbox.py`),
-`Notification.for_payment()` with a deterministic `dedup_key`, RabbitMQ retry and parking
-queues in `infra/rabbitmq/definitions.json`.
-Planned: consumers in `workers/consumers/`.
+- Inbox: `InboxMessageModel`, `SqlInboxRepository` (`INSERT ... ON CONFLICT DO NOTHING`).
+- Use cases: `RenewSubscriptionOnPayment`, `DeliverNotification`
+  (`application/use_cases/consumers.py`).
+- Retry and parking: `ReliableConsumer` (`workers/consumers/common.py`) counts attempts from
+  the `x-death` header and dispatches by the message `type`, because the routing key changes
+  after a round trip through the retry queue. Topology: `infra/rabbitmq/definitions.json`.
+- Tests: `test_redelivered_event_changes_nothing`, `test_failing_channel_is_retried_then_parked`,
+  `test_poison_message_is_parked_immediately`, `tests/unit/test_consumers.py`.

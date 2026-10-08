@@ -51,6 +51,22 @@ def make_alembic_config(database_url: str) -> Config:
 
 
 @pytest.fixture(scope="session")
+def rabbitmq_url() -> Iterator[str]:
+    """RabbitMQ from TEST_RABBITMQ_URL if set, otherwise a throwaway container."""
+    url = os.environ.get("TEST_RABBITMQ_URL")
+    if url:
+        yield url
+        return
+
+    from testcontainers.rabbitmq import RabbitMqContainer
+
+    with RabbitMqContainer("rabbitmq:3.13-alpine") as container:
+        host = container.get_container_host_ip()
+        port = container.get_exposed_port(container.port)
+        yield f"amqp://guest:guest@{host}:{port}/"
+
+
+@pytest.fixture(scope="session")
 def alembic_config(database_url: str) -> Config:
     return make_alembic_config(database_url)
 

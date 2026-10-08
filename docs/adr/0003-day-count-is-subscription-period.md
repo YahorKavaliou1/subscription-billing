@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-08
-- Implementation: **Domain done**; triggered by the renewal consumer (planned)
+- Implementation: **Done**
 
 ## Context
 
@@ -27,5 +27,6 @@ default 3 days, 1 day and on the expiry date), so reading 2 is still covered.
 
 ## Where in code
 
-`Subscription.renew()` (`domain/entities.py`), `NotificationSchedulePolicy` (`domain/policies.py`).
-Planned: the renewal consumer calls `renew()` on `payment.succeeded`.
+`Subscription.renew()` (`domain/entities.py`), `NotificationSchedulePolicy` (`domain/policies.py`),
+`RenewSubscriptionOnPayment` (`application/use_cases/consumers.py`) run by the renewal consumer
+on `payment.succeeded`. Test: `test_successful_payment_notifies_user_and_renews_subscription`.

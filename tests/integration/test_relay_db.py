@@ -1,13 +1,12 @@
 """Outbox relay against real PostgreSQL and real RabbitMQ.
 
-RabbitMQ comes from TEST_RABBITMQ_URL if set, otherwise from testcontainers.
+RabbitMQ comes from the `rabbitmq_url` fixture (see conftest.py).
 """
 
 import asyncio
 import json
-import os
 import uuid
-from collections.abc import AsyncIterator, Iterator
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -30,21 +29,6 @@ from app.infrastructure.observability.correlation import bind_correlation_id, cl
 pytestmark = pytest.mark.integration
 
 CLOCK = SystemClock()
-
-
-@pytest.fixture(scope="session")
-def rabbitmq_url() -> Iterator[str]:
-    url = os.environ.get("TEST_RABBITMQ_URL")
-    if url:
-        yield url
-        return
-
-    from testcontainers.rabbitmq import RabbitMqContainer
-
-    with RabbitMqContainer("rabbitmq:3.13-alpine") as container:
-        host = container.get_container_host_ip()
-        port = container.get_exposed_port(container.port)
-        yield f"amqp://guest:guest@{host}:{port}/"
 
 
 @pytest.fixture
