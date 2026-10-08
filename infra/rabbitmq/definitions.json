@@ -1,0 +1,64 @@
+{
+  "exchanges": [
+    { "name": "billing.events",  "vhost": "/", "type": "topic",  "durable": true, "auto_delete": false, "internal": false, "arguments": {} },
+    { "name": "billing.retry",   "vhost": "/", "type": "direct", "durable": true, "auto_delete": false, "internal": false, "arguments": {} },
+    { "name": "billing.parking", "vhost": "/", "type": "direct", "durable": true, "auto_delete": false, "internal": false, "arguments": {} }
+  ],
+  "queues": [
+    {
+      "name": "notifications.send", "vhost": "/", "durable": true, "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "billing.retry",
+        "x-dead-letter-routing-key": "notifications.send",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "notifications.send.retry", "vhost": "/", "durable": true, "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-message-ttl": 60000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "notifications.send"
+      }
+    },
+    {
+      "name": "notifications.send.parking", "vhost": "/", "durable": true, "auto_delete": false,
+      "arguments": { "x-queue-type": "quorum" }
+    },
+    {
+      "name": "subscriptions.renewal", "vhost": "/", "durable": true, "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-dead-letter-exchange": "billing.retry",
+        "x-dead-letter-routing-key": "subscriptions.renewal",
+        "x-dead-letter-strategy": "at-least-once",
+        "x-overflow": "reject-publish"
+      }
+    },
+    {
+      "name": "subscriptions.renewal.retry", "vhost": "/", "durable": true, "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-message-ttl": 60000,
+        "x-dead-letter-exchange": "",
+        "x-dead-letter-routing-key": "subscriptions.renewal"
+      }
+    },
+    {
+      "name": "subscriptions.renewal.parking", "vhost": "/", "durable": true, "auto_delete": false,
+      "arguments": { "x-queue-type": "quorum" }
+    }
+  ],
+  "bindings": [
+    { "source": "billing.events",  "vhost": "/", "destination": "notifications.send",            "destination_type": "queue", "routing_key": "notification.#",    "arguments": {} },
+    { "source": "billing.events",  "vhost": "/", "destination": "notifications.send",            "destination_type": "queue", "routing_key": "payment.*",         "arguments": {} },
+    { "source": "billing.events",  "vhost": "/", "destination": "subscriptions.renewal",         "destination_type": "queue", "routing_key": "payment.succeeded", "arguments": {} },
+    { "source": "billing.retry",   "vhost": "/", "destination": "notifications.send.retry",      "destination_type": "queue", "routing_key": "notifications.send",    "arguments": {} },
+    { "source": "billing.retry",   "vhost": "/", "destination": "subscriptions.renewal.retry",   "destination_type": "queue", "routing_key": "subscriptions.renewal", "arguments": {} },
+    { "source": "billing.parking", "vhost": "/", "destination": "notifications.send.parking",    "destination_type": "queue", "routing_key": "notifications.send",    "arguments": {} },
+    { "source": "billing.parking", "vhost": "/", "destination": "subscriptions.renewal.parking", "destination_type": "queue", "routing_key": "subscriptions.renewal", "arguments": {} }
+  ]
+}

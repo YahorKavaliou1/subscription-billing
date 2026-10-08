@@ -1,0 +1,96 @@
+name: subscription-billing
+
+x-app: &app
+  build: .
+  env_file: ..env
+  depends_on:
+    postgres: { condition: service_healthy }
+    rabbitmq-init: { condition: service_completed_successfully }
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-billing}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-billing}
+      POSTGRES_DB: ${POSTGRES_DB:-billing}
+    ports: ["5432:5432"]
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-billing}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-billing}
+    ports: ["5672:5672", "15672:15672"]
+    volumes:
+      - rmq_data:/var/lib/rabbitmq
+      - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/90-billing.conf:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Применяет декларативную топологию (exchanges/queues/bindings) через management API.
+  rabbitmq-init:
+    image: curlimages/curl:8.10.1
+    depends_on:
+      rabbitmq: { condition: service_healthy }
+    volumes:
+      - ./infra/rabbitmq/definitions.json:/definitions.json:ro
+    entrypoint: ["sh", "-c"]
+    command:
+      - >
+        curl -fsS -u ${RABBITMQ_USER:-billing}:${RABBITMQ_PASSWORD:-billing}
+        -H 'content-type: application/json'
+        -X POST http://rabbitmq:15672/api/definitions -d @/definitions.json
+        && echo 'topology applied'
+
+  migrate:
+    <<: *app
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    <<: *app
+    command: ["uvicorn", "app.api.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000"]
+    ports: ["8000:8000"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  outbox-relay:
+    <<: *app
+    command: ["python", "-m", "app.workers.relay"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  scheduler:
+    <<: *app
+    command: ["python", "-m", "app.workers.scheduler"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  notification-worker:
+    <<: *app
+    command: ["faststream", "run", "app.workers.consumers.notifications:app"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+  renewal-worker:
+    <<: *app
+    command: ["faststream", "run", "app.workers.consumers.renewal:app"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+
+volumes:
+  pg_data:
+  rmq_data:
