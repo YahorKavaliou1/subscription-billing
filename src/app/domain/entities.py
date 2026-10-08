@@ -73,12 +73,15 @@ class Payment:
     money: Money
     status: PaymentStatus
     id: uuid.UUID = field(default_factory=uuid.uuid4)
+    created_at: datetime | None = None
 
     def __post_init__(self) -> None:
         self.subscription_id = require_id(self.subscription_id, "subscription_id")
         self.provider_payment = require_id(
             self.provider_payment, "provider_payment", MAX_PROVIDER_PAYMENT_LENGTH
         )
+        if self.created_at is not None:
+            self.created_at = require_aware_utc(self.created_at, "created_at")
 
     @property
     def event(self) -> NotificationEvent:
