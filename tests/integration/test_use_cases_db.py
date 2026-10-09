@@ -7,7 +7,12 @@ from typing import Any
 
 import pytest
 from sqlalchemy import func, select, update
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from app.application.dto import (
     OutboxMessage,
@@ -32,7 +37,8 @@ from app.infrastructure.db.models import (
     PaymentModel,
     SubscriptionModel,
 )
-from app.infrastructure.db.uow import SqlAlchemyUnitOfWork
+from app.infrastructure.db.session import create_session_factory
+from app.infrastructure.db.uow import SqlAlchemyUnitOfWork, make_uow_factory
 from app.infrastructure.observability.correlation import bind_correlation_id, clear_correlation_id
 
 pytestmark = pytest.mark.integration
@@ -235,6 +241,31 @@ class TestPayments:
         assert len({r.event_id for r in results}) == 1
         assert await count(engine, PaymentModel) == 1
         assert await count(engine, OutboxEventModel) == 1
+
+    async def test_burst_of_retries_does_not_exhaust_the_pool(
+        self, database_url: str, uow_factory: UnitOfWorkFactory, subscription: None
+    ) -> None:
+        """A provider retrying one webhook many times at once: each retry needs one connection.
+
+        With a 2-connection pool, a retry that held one connection while waiting for a second
+        one would deadlock the pool and time out.
+        """
+        await RegisterPayment(uow_factory, CLOCK).execute(payment_command())
+        small_engine = create_async_engine(
+            database_url, pool_size=2, max_overflow=0, pool_timeout=5
+        )
+        try:
+            register = RegisterPayment(
+                make_uow_factory(create_session_factory(small_engine)), CLOCK
+            )
+            results = await asyncio.gather(
+                *(register.execute(payment_command()) for _ in range(20))
+            )
+        finally:
+            await small_engine.dispose()
+
+        assert not any(r.created for r in results)
+        assert len({r.payment.id for r in results}) == 1
 
     async def test_unknown_subscription(
         self, uow_factory: UnitOfWorkFactory, engine: AsyncEngine

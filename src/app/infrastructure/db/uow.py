@@ -6,7 +6,7 @@ from typing import Self
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.application.ports import UnitOfWorkFactory
-from app.infrastructure.db.errors import translate_integrity_errors
+from app.infrastructure.db.errors import translate_write_errors
 from app.infrastructure.db.repositories import (
     SqlInboxRepository,
     SqlNotificationRepository,
@@ -45,7 +45,7 @@ class SqlAlchemyUnitOfWork:
             self._session = None
 
     async def commit(self) -> None:
-        async with translate_integrity_errors():
+        async with translate_write_errors():
             await self._require_session().commit()
 
     def _require_session(self) -> AsyncSession:

@@ -27,11 +27,14 @@ Key rule: **a payment and its event are saved together or not at all.**
 - Events are delivered at least once; duplicates are ignored by consumers.
 - The API keeps accepting payments when RabbitMQ is down.
 - Money is stored as `Decimal`, time as UTC.
-- Runs locally with one command: `docker compose up`.
+- Runs locally with one command after copying the env template: `cp .env.example .env && docker compose up -d --build` (or `make up`).
 - Covered by tests; CI runs lint, type checks and tests.
 
 ## Assumptions
 
-- `day_count` is the subscription period length in days.
+- `day_count` is the subscription period length in days (1 to 3650).
+- A successful payment extends an active subscription from its expiry date; an expired one
+  gets a new period starting at the payment time.
+- A subscription whose `expected_expires_on` is already in the past is stored as `expired`.
 - A payment for an unknown subscription is rejected.
 - Real email / push sending is out of scope; notifications are logged.

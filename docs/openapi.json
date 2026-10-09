@@ -452,6 +452,7 @@
               30
             ],
             "exclusiveMinimum": 0.0,
+            "maximum": 3650.0,
             "title": "Day Count",
             "type": "integer"
           },

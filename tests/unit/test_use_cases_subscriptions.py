@@ -6,7 +6,7 @@ from app.application.dto import UpsertSubscriptionCommand
 from app.application.ports import DuplicateKeyError
 from app.application.use_cases import GetSubscription, UpsertSubscription
 from app.domain.entities import Subscription
-from app.domain.enums import NotificationEvent, NotificationStatus
+from app.domain.enums import NotificationEvent, NotificationStatus, SubscriptionStatus
 from app.domain.errors import (
     InvalidValueError,
     SubscriptionNotFoundError,
@@ -156,3 +156,23 @@ async def test_get_returns_state_and_history(
 async def test_get_unknown_subscription(db: FakeDatabase) -> None:
     with pytest.raises(SubscriptionNotFoundError):
         await GetSubscription(db.uow).execute("missing")
+
+
+async def test_past_expiry_date_creates_an_expired_subscription(
+    upsert: UpsertSubscription, clock: FakeClock
+) -> None:
+    result = await upsert.execute(command(expected_expires_on=clock.now() - timedelta(days=1)))
+
+    assert result.subscription.status is SubscriptionStatus.EXPIRED
+    assert result.subscription.notifications == []  # nothing left to remind about
+
+
+async def test_moving_the_date_into_the_past_expires_and_cancels_reminders(
+    upsert: UpsertSubscription, db: FakeDatabase, clock: FakeClock
+) -> None:
+    await upsert.execute(command())
+
+    result = await upsert.execute(command(expected_expires_on=clock.now() - timedelta(days=1)))
+
+    assert result.subscription.status is SubscriptionStatus.EXPIRED
+    assert {status for _, status in statuses(db)} == {NotificationStatus.CANCELLED}

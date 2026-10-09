@@ -55,7 +55,9 @@ class RegisterPayment:
         async with self._uow_factory() as uow:
             existing = await uow.payments.get_by_provider_payment(candidate.provider_payment)
             if existing is not None:
-                return await self._replay(candidate, existing)
+                # A retry from the provider: answer from the same transaction, so a burst of
+                # retries holds one connection per request, not two
+                return await self._replay_result(uow, candidate, existing)
 
             subscription = await uow.subscriptions.get(candidate.subscription_id)
             if subscription is None:
@@ -69,17 +71,21 @@ class RegisterPayment:
             payment=PaymentView.from_entity(candidate), event_id=event_id, created=True
         )
 
-    async def _replay(
-        self, candidate: Payment, existing: Payment | None = None
-    ) -> RegisterPaymentResult:
+    async def _replay(self, candidate: Payment) -> RegisterPaymentResult:
+        """After losing the insert race: the failed transaction is closed, read in a new one."""
         async with self._uow_factory() as uow:
-            if existing is None:
-                existing = await uow.payments.get_by_provider_payment(candidate.provider_payment)
+            existing = await uow.payments.get_by_provider_payment(candidate.provider_payment)
             if existing is None:  # pragma: no cover  # duplicate key implies the row exists
                 raise PaymentNotFoundError(candidate.provider_payment)
-            if not existing.is_same_request(candidate):
-                raise PaymentIdempotencyConflictError(candidate.provider_payment)
-            event = await uow.outbox.get_latest_for_aggregate(PAYMENT_AGGREGATE, str(existing.id))
+            return await self._replay_result(uow, candidate, existing)
+
+    @staticmethod
+    async def _replay_result(
+        uow: UnitOfWork, candidate: Payment, existing: Payment
+    ) -> RegisterPaymentResult:
+        if not existing.is_same_request(candidate):
+            raise PaymentIdempotencyConflictError(candidate.provider_payment)
+        event = await uow.outbox.get_latest_for_aggregate(PAYMENT_AGGREGATE, str(existing.id))
         return RegisterPaymentResult(
             payment=PaymentView.from_entity(existing),
             event_id=event.id if event else None,

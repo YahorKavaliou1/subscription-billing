@@ -47,6 +47,8 @@ class UpsertSubscription:
                     day_count=command.day_count,
                     expected_expires_on=command.expected_expires_on,
                 )
+                # An expiry date in the past means the subscription is already over
+                subscription.sync_status(now)
                 await uow.subscriptions.add(subscription)
                 existing: list[Notification] = []
             else:
@@ -54,6 +56,7 @@ class UpsertSubscription:
                 subscription.update(
                     day_count=command.day_count,
                     expected_expires_on=command.expected_expires_on,
+                    now=now,
                 )
                 await uow.subscriptions.update(subscription)
                 existing = await uow.notifications.list_for_subscription(subscription.id)

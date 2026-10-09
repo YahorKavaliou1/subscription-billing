@@ -35,10 +35,12 @@ dev = [
 ]
 
 [project.scripts]
-# Process entry points (see docs/architecture.md, "Components" section)
+# Process entry points, the same as `python -m <module>` in docker-compose.yml
 billing-api = "app.api.main:run"
 billing-relay = "app.workers.relay:run"
 billing-scheduler = "app.workers.scheduler:run"
+billing-notification-worker = "app.workers.consumers.notifications:run"
+billing-renewal-worker = "app.workers.consumers.renewal:run"
 
 [build-system]
 requires = ["hatchling"]

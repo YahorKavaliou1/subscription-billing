@@ -19,11 +19,13 @@ from app.domain.value_objects import Money, require_aware_utc, require_id
 
 MAX_PROVIDER_PAYMENT_LENGTH = 128
 MAX_ERROR_LENGTH = 2000
+# Ten years: far above any real billing period, and keeps date arithmetic in range
+MAX_DAY_COUNT = 3650
 
 
 def _require_day_count(value: int) -> int:
-    if value <= 0:
-        raise InvalidValueError("day_count must be positive")
+    if not 0 < value <= MAX_DAY_COUNT:
+        raise InvalidValueError(f"day_count must be between 1 and {MAX_DAY_COUNT}")
     return value
 
 
@@ -47,19 +49,31 @@ class Subscription:
         if self.user_id != user_id.strip():
             raise SubscriptionOwnershipConflictError(self.id)
 
-    def update(self, *, day_count: int, expected_expires_on: datetime) -> bool:
+    def update(self, *, day_count: int, expected_expires_on: datetime, now: datetime) -> bool:
         """Apply new terms; return True if anything affecting the schedule changed."""
         day_count = _require_day_count(day_count)
         expires = require_aware_utc(expected_expires_on, "expected_expires_on")
         changed = (day_count, expires) != (self.day_count, self.expected_expires_on)
         self.day_count = day_count
         self.expected_expires_on = expires
-        self.status = SubscriptionStatus.ACTIVE
+        self.sync_status(now)
         return changed
 
-    def renew(self) -> None:
-        """Extend the subscription by one period after a successful payment."""
-        self.expected_expires_on += timedelta(days=self.day_count)
+    def sync_status(self, now: datetime) -> None:
+        """Active until the expiry moment, expired from it on."""
+        expired = self.expected_expires_on <= require_aware_utc(now, "now")
+        self.status = SubscriptionStatus.EXPIRED if expired else SubscriptionStatus.ACTIVE
+
+    def renew(self, paid_at: datetime) -> None:
+        """Extend by one period after a successful payment.
+
+        An active subscription is extended from its current expiry date, so paying early
+        loses nothing. An already expired one starts a new period at the payment time
+        instead of being extended from a date in the past.
+        """
+        paid_at = require_aware_utc(paid_at, "paid_at")
+        start = max(self.expected_expires_on, paid_at)
+        self.expected_expires_on = start + timedelta(days=self.day_count)
         self.status = SubscriptionStatus.ACTIVE
 
     def expire(self) -> None:

@@ -63,7 +63,8 @@ class RenewSubscriptionOnPayment:
                 await uow.commit()
                 return Outcome.SKIPPED
 
-            subscription.renew()
+            # From the payment time, not the processing time: retries give the same result
+            subscription.renew(paid_at=event.occurred_at)
             await uow.subscriptions.update(subscription)
             existing = await uow.notifications.list_for_subscription(subscription.id)
             reschedule = self._policy.reschedule(subscription, existing, self._clock.now())

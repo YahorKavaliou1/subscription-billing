@@ -1,12 +1,13 @@
 from pydantic import AwareDatetime, Field
 
 from app.api.schemas.common import RequestModel, ResponseModel
+from app.domain.entities import MAX_DAY_COUNT
 from app.domain.enums import NotificationEvent, NotificationStatus, SubscriptionStatus
 
 
 class UpsertSubscriptionRequest(RequestModel):
     user_id: str = Field(min_length=1, max_length=64, examples=["user-1"])
-    day_count: int = Field(gt=0, examples=[30])
+    day_count: int = Field(gt=0, le=MAX_DAY_COUNT, examples=[30])
     # AwareDatetime rejects values without a timezone
     expected_expires_on: AwareDatetime = Field(examples=["2026-11-01T12:00:00Z"])
 

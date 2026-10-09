@@ -56,11 +56,19 @@ POST /payments ─▶ api ──one transaction──▶ PostgreSQL: payments + 
 - **Sending fails:** the message is retried after 60 s. After
   `APP_CONSUMER_MAX_DELIVERY_ATTEMPTS` the notification is marked `failed`, and the message is
   moved to a `*.parking` queue. Malformed messages are parked right away.
-- **PostgreSQL is down:** the API answers `503` with `Retry-After`. Workers keep retrying
-  and recover without a restart.
+- **PostgreSQL is down:** the API answers `503` with `Retry-After`. The relay and the scheduler retry until the database is back. Consumers retry each message for about 4 minutes (5 attempts, 60 s apart); after that the message is parked.
 
 Design decisions are recorded as ADRs in [`docs/adr/`](docs/adr/README.md): outbox, idempotency, 
 delivery guarantees, reminder storage, and why old outbox/inbox rows are not deleted yet.
+
+## Known limitations
+
+- **Notifications are only logged.** Delivery is a stub (`APP_NOTIFICATION_SENDER=log`). A crash between sending and recording the result can send a notification twice; a real provider should get `notification_id` as its idempotency key.
+- **No tooling for stuck messages.** Parked messages and `dead` outbox events are visible (queues, metrics, `GET /payments/{id}`), but there is no command to replay them yet.
+- **Payment status does not show renewal.** `GET /payments/{id}` reports the event and the notification, but not whether the subscription was extended. The subscription itself shows the new `expected_expires_on`.
+- **A `PUT` and a payment for the same period both extend the subscription.** Renew a period either by payment or by `PUT`, not both ([ADR 0003](docs/adr/0003-day-count-is-subscription-period.md)).
+- **`subscription_id` is part of the URL** (`PUT /api/v1/subscriptions/{id}`), not of the request body.
+- Old outbox and inbox rows are kept on purpose ([ADR 0007](docs/adr/0007-outbox-and-inbox-retention-deferred.md)).
 
 ## Quick start
 

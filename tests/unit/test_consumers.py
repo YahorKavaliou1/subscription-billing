@@ -17,7 +17,12 @@ from app.application.use_cases.consumers import (
 )
 from app.contracts.events import PaymentResultEvent, ReminderDueEvent
 from app.domain.entities import Notification, Payment, Subscription
-from app.domain.enums import NotificationEvent, NotificationStatus, PaymentStatus
+from app.domain.enums import (
+    NotificationEvent,
+    NotificationStatus,
+    PaymentStatus,
+    SubscriptionStatus,
+)
 from app.domain.policies import NotificationSchedulePolicy
 from app.domain.value_objects import Money
 from app.workers.consumers.common import delivery_attempt, event_type_of
@@ -61,7 +66,7 @@ def add_payment(db: FakeDatabase, status: PaymentStatus = PaymentStatus.SUCCEEDE
     return payment
 
 
-def payment_event(payment: Payment) -> PaymentResultEvent:
+def payment_event(payment: Payment, occurred_at: datetime | None = None) -> PaymentResultEvent:
     return PaymentResultEvent(
         payment_id=payment.id,
         subscription_id=payment.subscription_id,
@@ -70,7 +75,7 @@ def payment_event(payment: Payment) -> PaymentResultEvent:
         amount=payment.money.amount,
         currency=payment.money.currency,
         status=payment.status,
-        occurred_at=datetime.now(UTC),
+        occurred_at=occurred_at or FakeClock().now(),
     )
 
 
@@ -107,6 +112,16 @@ class TestRenewal:
 
         expires = db.state.subscriptions["sub-1"].expected_expires_on
         assert expires == EXPIRES + timedelta(days=60)
+
+    async def test_payment_after_expiry_starts_a_new_period(self, db: FakeDatabase) -> None:
+        renew = RenewSubscriptionOnPayment(db.uow, POLICY, db.clock)
+        paid_at = EXPIRES + timedelta(days=100)
+
+        await renew.execute("m-1", payment_event(add_payment(db), occurred_at=paid_at))
+
+        subscription = db.state.subscriptions["sub-1"]
+        assert subscription.expected_expires_on == paid_at + timedelta(days=30)
+        assert subscription.status is SubscriptionStatus.ACTIVE
 
     async def test_failed_payment_is_ignored(self, db: FakeDatabase) -> None:
         renew = RenewSubscriptionOnPayment(db.uow, POLICY, db.clock)

@@ -113,7 +113,7 @@ async def test_expiry_reminder_expires_the_subscription(db: FakeDatabase, clock:
 async def test_renewed_subscription_is_not_expired(db: FakeDatabase, clock: FakeClock) -> None:
     clock.advance(timedelta(days=10))
     # Renewed in the meantime, but the old expiry reminder is still due
-    db.state.subscriptions["sub-1"].renew()
+    db.state.subscriptions["sub-1"].renew(paid_at=clock.now())
 
     result = await ReminderScheduler(db.uow, clock).run_once()
 

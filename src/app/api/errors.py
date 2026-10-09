@@ -9,6 +9,7 @@ from typing import Any
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import DBAPIError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.schemas.common import Problem
@@ -20,7 +21,7 @@ from app.domain.errors import (
     InvalidValueError,
     NotFoundError,
 )
-from app.infrastructure.db.errors import DATABASE_UNAVAILABLE_ERRORS
+from app.infrastructure.db.errors import DATABASE_UNAVAILABLE_ERRORS, is_transient
 from app.infrastructure.observability.logging import get_logger
 
 PROBLEM_JSON = "application/problem+json"
@@ -108,6 +109,21 @@ async def _handle_unavailable(request: Request, exc: Exception) -> JSONResponse:
     )
 
 
+async def _handle_database_error(request: Request, exc: Exception) -> JSONResponse:
+    assert isinstance(exc, DBAPIError)
+    if is_transient(exc):
+        # Aborted by PostgreSQL because of a concurrent transaction (deadlock, serialization);
+        # nothing was committed, so the client can retry the same request
+        log.warning("request.transient_database_error", error=repr(exc))
+        return problem_response(
+            request,
+            HTTPStatus.SERVICE_UNAVAILABLE,
+            "Concurrent update in progress, retry later",
+            headers={"Retry-After": "1"},
+        )
+    return await _handle_unexpected(request, exc)
+
+
 async def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
     log.exception("request.failed")
     return problem_response(request, HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -119,6 +135,9 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(UnauthorizedError, _handle_unauthorized)
     app.add_exception_handler(RequestValidationError, _handle_validation)
     app.add_exception_handler(StarletteHTTPException, _handle_http)
+    # The most specific handler wins: OperationalError/InterfaceError (subclasses of
+    # DBAPIError) are "unavailable", other DBAPIErrors are checked for being transient
     for error_type in DATABASE_UNAVAILABLE_ERRORS:
         app.add_exception_handler(error_type, _handle_unavailable)
+    app.add_exception_handler(DBAPIError, _handle_database_error)
     app.add_exception_handler(Exception, _handle_unexpected)

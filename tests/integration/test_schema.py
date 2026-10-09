@@ -1,16 +1,18 @@
 """Database-level guarantees: constraints that protect data even if application code is wrong."""
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 import pytest
-from sqlalchemy import select
-from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, text
+from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession
 
 from app.domain.enums import NotificationStatus, OutboxStatus, PaymentStatus, SubscriptionStatus
+from app.infrastructure.db.errors import is_transient
 from app.infrastructure.db.models import (
     InboxMessageModel,
     NotificationModel,
@@ -177,3 +179,43 @@ async def test_inbox_rejects_already_processed_message(session: AsyncSession) ->
     await assert_violates(
         session, "pk_inbox_messages", InboxMessageModel(consumer="renewal", message_id="m-1")
     )
+
+
+async def test_deadlock_is_classified_as_transient(engine: AsyncEngine) -> None:
+    """Two transactions lock the same rows in opposite order; PostgreSQL aborts one."""
+    async with engine.begin() as connection:
+        await connection.execute(
+            text("CREATE TABLE IF NOT EXISTS deadlock_probe (id int PRIMARY KEY)")
+        )
+        await connection.execute(
+            text("INSERT INTO deadlock_probe VALUES (1), (2) ON CONFLICT DO NOTHING")
+        )
+
+    first_locked, second_locked = asyncio.Event(), asyncio.Event()
+
+    async def lock(first: int, second: int, mine: asyncio.Event, other: asyncio.Event) -> None:
+        async with engine.begin() as connection:
+            await connection.execute(
+                text("SELECT 1 FROM deadlock_probe WHERE id = :id FOR UPDATE"), {"id": first}
+            )
+            mine.set()
+            await other.wait()
+            await connection.execute(
+                text("SELECT 1 FROM deadlock_probe WHERE id = :id FOR UPDATE"), {"id": second}
+            )
+
+    try:
+        results = await asyncio.gather(
+            lock(1, 2, first_locked, second_locked),
+            lock(2, 1, second_locked, first_locked),
+            return_exceptions=True,
+        )
+    finally:
+        async with engine.begin() as connection:
+            await connection.execute(text("DROP TABLE deadlock_probe"))
+
+    errors = [r for r in results if isinstance(r, BaseException)]
+    assert len(errors) == 1
+    [error] = errors
+    assert isinstance(error, DBAPIError)
+    assert is_transient(error)

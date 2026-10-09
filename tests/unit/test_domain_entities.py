@@ -82,32 +82,49 @@ class TestSubscription:
     def test_update_reports_changes(self) -> None:
         subscription = make_subscription()
 
-        assert subscription.update(day_count=30, expected_expires_on=EXPIRES) is False
-        assert subscription.update(day_count=60, expected_expires_on=EXPIRES) is True
+        assert subscription.update(day_count=30, expected_expires_on=EXPIRES, now=NOW) is False
+        assert subscription.update(day_count=60, expected_expires_on=EXPIRES, now=NOW) is True
         assert subscription.day_count == 60
 
     def test_update_reactivates_expired_subscription(self) -> None:
         subscription = make_subscription()
         subscription.expire()
 
-        subscription.update(day_count=30, expected_expires_on=EXPIRES + timedelta(days=30))
+        subscription.update(day_count=30, expected_expires_on=EXPIRES + timedelta(days=30), now=NOW)
 
         assert subscription.status is SubscriptionStatus.ACTIVE
 
-    def test_update_validates_input(self) -> None:
+    def test_update_to_a_past_date_expires_the_subscription(self) -> None:
+        subscription = make_subscription()
+
+        subscription.update(day_count=30, expected_expires_on=NOW - timedelta(days=1), now=NOW)
+
+        assert subscription.status is SubscriptionStatus.EXPIRED
+
+    @pytest.mark.parametrize("day_count", [0, -1, 3651])
+    def test_update_validates_input(self, day_count: int) -> None:
         subscription = make_subscription()
 
         with pytest.raises(InvalidValueError):
-            subscription.update(day_count=0, expected_expires_on=EXPIRES)
+            subscription.update(day_count=day_count, expected_expires_on=EXPIRES, now=NOW)
         assert subscription.day_count == 30  # unchanged after a rejected update
 
-    def test_renew_extends_by_day_count(self) -> None:
+    def test_early_payment_extends_from_the_expiry_date(self) -> None:
         subscription = make_subscription(day_count=30)
-        subscription.expire()
 
-        subscription.renew()
+        subscription.renew(paid_at=NOW)  # NOW is before EXPIRES
 
         assert subscription.expected_expires_on == EXPIRES + timedelta(days=30)
+        assert subscription.status is SubscriptionStatus.ACTIVE
+
+    def test_late_payment_starts_a_new_period_at_payment_time(self) -> None:
+        subscription = make_subscription(day_count=30)
+        subscription.expire()
+        paid_at = EXPIRES + timedelta(days=100)
+
+        subscription.renew(paid_at=paid_at)
+
+        assert subscription.expected_expires_on == paid_at + timedelta(days=30)
         assert subscription.status is SubscriptionStatus.ACTIVE
 
 

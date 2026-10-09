@@ -18,8 +18,10 @@ The rows are not just technical leftovers:
   delivered (`event.status`, `published_at`, `last_error`). This is a feature from the task.
   Once the row is deleted, the API can no longer say whether the event was delivered.
 - An inbox row is what makes a redelivered message a no-op. A message can come back long after
-  it was first processed: a parked message replayed by an operator days later, or an event
-  published again by a relay that crashed before marking it and stayed down for a long time.
+  it was first processed: a message moved back from a parking queue by an operator days later
+  (there is no tool for this yet; it would be done with RabbitMQ's shovel or management UI), or
+  an event published again by a relay that crashed before marking it and stayed down for a long
+  time.
   If the inbox row is already gone, the message is processed again, and a payment could renew a
   subscription twice.
 

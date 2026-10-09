@@ -8,7 +8,8 @@ from typing import Any
 
 import httpx
 import pytest
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import DBAPIError, OperationalError
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from app.api.main import create_app
 from app.bootstrap import Container
@@ -303,3 +304,40 @@ async def test_database_outage_is_503_with_retry_after(error: Exception) -> None
     assert response.headers["content-type"] == "application/problem+json"
     assert response.headers["retry-after"] == "5"
     assert response.json()["status"] == 503
+
+
+@pytest.mark.parametrize("day_count", [0, 3651, 99999999999])
+async def test_day_count_out_of_range_is_422(client: httpx.AsyncClient, day_count: int) -> None:
+    response = await client.put(
+        "/api/v1/subscriptions/sub-1", json=subscription_body(day_count=day_count)
+    )
+
+    assert response.status_code == 422
+
+
+class _DeadlockError(Exception):
+    sqlstate = "40P01"
+
+
+@pytest.mark.parametrize(
+    ("error", "status"),
+    [
+        (DBAPIError("UPDATE ...", {}, _DeadlockError("deadlock detected")), 503),
+        (PoolTimeoutError("QueuePool limit of size 10 overflow 10 reached"), 503),
+        (DBAPIError("SELECT ...", {}, Exception("something else")), 500),
+    ],
+)
+async def test_database_errors_are_classified(error: Exception, status: int) -> None:
+    def broken_uow() -> Any:
+        raise error
+
+    container = Container(
+        api_key=API_KEY, uow_factory=broken_uow, policy=NotificationSchedulePolicy([3, 1, 0])
+    )
+    transport = httpx.ASGITransport(app=create_app(container), raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/api/v1/payments", json=payment_body(), headers=AUTH)
+
+    assert response.status_code == status
+    assert response.headers["content-type"] == "application/problem+json"
+    assert ("retry-after" in response.headers) is (status == 503)
