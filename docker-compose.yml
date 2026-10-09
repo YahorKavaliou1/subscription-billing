@@ -15,7 +15,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-billing}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-billing}
       POSTGRES_DB: ${POSTGRES_DB:-billing}
-    ports: ["5432:5432"]
+    # Host ports are configurable to avoid clashes with other local projects (see .env.example)
+    ports: ["${POSTGRES_HOST_PORT:-5432}:5432"]
     volumes:
       - pg_data:/var/lib/postgresql/data
       - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -30,7 +31,9 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-billing}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-billing}
-    ports: ["5672:5672", "15672:15672"]
+    ports:
+      - "${RABBITMQ_HOST_PORT:-5672}:5672"
+      - "${RABBITMQ_MANAGEMENT_HOST_PORT:-15672}:15672"
     volumes:
       - rmq_data:/var/lib/rabbitmq
       - ./infra/rabbitmq/rabbitmq.conf:/etc/rabbitmq/conf.d/90-billing.conf:ro
@@ -63,7 +66,7 @@ services:
   api:
     <<: *app
     command: ["python", "-m", "app.api.main"]
-    ports: ["8000:8000"]
+    ports: ["${API_HOST_PORT:-8000}:8000"]
     healthcheck:
       # The image has no curl; urlopen raises (exit 1) on 503 or connection errors
       test:

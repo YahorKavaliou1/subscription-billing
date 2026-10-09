@@ -59,9 +59,8 @@ POST /payments ─▶ api ──one transaction──▶ PostgreSQL: payments + 
 - **PostgreSQL is down:** the API answers `503` with `Retry-After`. Workers keep retrying
   and recover without a restart.
 
-Design decisions are recorded as ADRs in [`docs/adr/`](docs/adr/README.md) (outbox, idempotency,
-delivery guarantees, reminder storage). Requirements analysis is in
-[`docs/analysis/requirements.md`](docs/analysis/requirements.md).
+Design decisions are recorded as ADRs in [`docs/adr/`](docs/adr/README.md): outbox, idempotency, 
+delivery guarantees, reminder storage, and why old outbox/inbox rows are not deleted yet.
 
 ## Quick start
 
@@ -82,6 +81,8 @@ curl localhost:8000/health/ready        # {"status":"ok",...}
 | PostgreSQL | `localhost:5432` (credentials from `.env`) |
 
 Logs: `docker compose logs -f`. Stop: `docker compose down`. Stop and delete data: `docker compose down -v`.
+
+If a port is already taken by another project, change `POSTGRES_HOST_PORT`, `RABBITMQ_HOST_PORT`, `RABBITMQ_MANAGEMENT_HOST_PORT` or `API_HOST_PORT` in `.env`.
 
 ## API
 

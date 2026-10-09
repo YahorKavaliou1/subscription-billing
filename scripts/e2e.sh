@@ -17,8 +17,10 @@ done
 
 [[ -f .env ]] || cp .env.example .env
 
-base_url="${E2E_BASE_URL:-http://localhost:8000}"
-api_key="${E2E_API_KEY:-$(grep -E '^APP_API_KEY=' .env | cut -d= -f2-)}"
+env_value() { grep -E "^$1=" .env | tail -n 1 | cut -d= -f2- || true; }
+api_port="$(env_value API_HOST_PORT)"
+base_url="${E2E_BASE_URL:-http://localhost:${api_port:-8000}}"
+api_key="${E2E_API_KEY:-$(env_value APP_API_KEY)}"
 
 cleanup() {
   if $down; then docker compose down -v --remove-orphans; fi
