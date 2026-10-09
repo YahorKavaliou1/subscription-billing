@@ -72,6 +72,7 @@ jobs:
 
       # Integration tests start Postgres/RabbitMQ via testcontainers;
       # Docker is available on GitHub-hosted ubuntu runners out of the box.
+      # tests/e2e are skipped here (no E2E_BASE_URL); they run in the e2e job.
       - name: Pytest
         run: |
           if [ -d tests ]; then
@@ -114,3 +115,38 @@ jobs:
           tags: subscription-billing:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  e2e:
+    name: End-to-end (docker compose)
+    runs-on: ubuntu-24.04
+    needs: [test, docker]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Install Python
+        run: uv python install ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: uv sync --all-groups
+
+      # Builds and starts the whole stack, then runs tests/e2e (smoke + fault scenarios).
+      # The script creates .env from .env.example if it is missing.
+      # No --down: the runner is thrown away anyway, and logs are collected on failure.
+      - name: End-to-end tests
+        run: bash scripts/e2e.sh
+
+      - name: Collect container logs
+        if: failure()
+        run: docker compose logs --no-color > compose.log || true
+
+      - name: Upload container logs
+        if: failure()
+        uses: actions/upload-artifact@v5
+        with:
+          name: compose-logs
+          path: compose.log
