@@ -171,6 +171,15 @@ class TestPayments:
         assert event.payload["amount"] == "9.99"
         assert event.headers == {"correlation_id": "req-42"}
 
+    async def test_event_without_a_request_starts_its_own_trace(
+        self, uow_factory: UnitOfWorkFactory, engine: AsyncEngine, subscription: None
+    ) -> None:
+        await RegisterPayment(uow_factory, CLOCK).execute(payment_command())
+
+        async with engine.connect() as connection:
+            event = (await connection.execute(select(OutboxEventModel))).one()
+        assert len(event.headers["correlation_id"]) == 32
+
     async def test_failure_after_payment_insert_rolls_back_everything(
         self,
         session_factory: async_sessionmaker[AsyncSession],

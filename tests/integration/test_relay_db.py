@@ -4,13 +4,16 @@ RabbitMQ comes from the `rabbitmq_url` fixture (see conftest.py).
 """
 
 import asyncio
+import io
 import json
+import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+import structlog
 from aio_pika.abc import AbstractIncomingMessage, AbstractRobustQueue
 from faststream.rabbit import Channel, ExchangeType, RabbitBroker, RabbitExchange, RabbitQueue
 from sqlalchemy import select
@@ -25,6 +28,7 @@ from app.domain.policies import NotificationSchedulePolicy
 from app.infrastructure.broker.rabbit import RabbitEventPublisher
 from app.infrastructure.db.models import OutboxEventModel
 from app.infrastructure.observability.correlation import bind_correlation_id, clear_correlation_id
+from app.infrastructure.observability.logging import configure_logging
 
 pytestmark = pytest.mark.integration
 
@@ -124,6 +128,41 @@ async def test_payment_event_reaches_the_queue(
     body = json.loads(message.body)
     assert body["provider_payment"] == "pi_relay_1"
     assert body["amount"] == "9.99"
+
+
+@pytest.fixture
+def json_logs() -> Iterator[io.StringIO]:
+    """Production log setup, with the output collected in a buffer."""
+    configure_logging("INFO", json=True)
+    [handler] = logging.getLogger().handlers
+    assert isinstance(handler, logging.StreamHandler)
+    buffer = io.StringIO()
+    handler.setStream(buffer)
+    yield buffer
+    structlog.reset_defaults()
+    logging.getLogger().handlers.clear()
+
+
+async def test_published_event_is_logged_under_the_request_correlation_id(
+    uow_factory: UnitOfWorkFactory,
+    broker: RabbitBroker,
+    exchange_and_queue: tuple[RabbitExchange, AbstractRobustQueue],
+    json_logs: io.StringIO,
+) -> None:
+    exchange, _ = exchange_and_queue
+    bind_correlation_id("req-trace-1")
+    try:
+        await register_payment(uow_factory, "pi_trace_1")
+    finally:
+        clear_correlation_id()
+
+    await OutboxRelay(uow_factory, RabbitEventPublisher(broker, exchange), CLOCK).run_once()
+
+    records = [json.loads(line) for line in json_logs.getvalue().splitlines() if line]
+    [published] = [r for r in records if r["event"] == "event.published"]
+    assert published["correlation_id"] == "req-trace-1"
+    assert published["event_type"] == "payment.succeeded"
+    assert published["attempt"] == 1
 
 
 async def test_unroutable_event_is_retried_not_lost(

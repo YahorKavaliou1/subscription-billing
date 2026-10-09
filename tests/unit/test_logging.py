@@ -71,3 +71,42 @@ def test_correlation_id_helpers() -> None:
 
     clear_correlation_id()
     assert get_correlation_id() is None
+
+
+def test_faststream_logs_are_json_with_message_context(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # FastStream attaches its own colored handler and disables propagation
+    library_logger = logging.getLogger("faststream.access.rabbit")
+    library_logger.addHandler(logging.StreamHandler())
+    library_logger.propagate = False
+
+    configure_logging("INFO", json=True)
+    library_logger.info(
+        "Received",
+        extra={"queue": "notifications.send", "message_id": "m-1", "color_message": "x"},
+    )
+
+    assert library_logger.handlers == []
+    [record] = read_json_lines(capsys.readouterr().out)
+    assert record["event"] == "Received"
+    assert record["queue"] == "notifications.send"
+    assert record["message_id"] == "m-1"
+    assert "color_message" not in record  # only known extras are kept
+
+
+def test_faststream_debug_lines_follow_the_root_level(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    # FastStream pins INFO on its parent logger at import time
+    logging.getLogger("faststream").setLevel(logging.INFO)
+    library_logger = logging.getLogger("faststream.access.rabbit")
+
+    configure_logging("INFO", json=True)
+    library_logger.debug("Received")  # per-message lines are hidden by default
+    assert read_json_lines(capsys.readouterr().out) == []
+
+    configure_logging("DEBUG", json=True)
+    library_logger.debug("Received")
+    [record] = read_json_lines(capsys.readouterr().out)
+    assert record["event"] == "Received"

@@ -19,6 +19,7 @@ from app.infrastructure.broker.rabbit import create_broker
 from app.infrastructure.db.session import create_engine, create_session_factory
 from app.infrastructure.db.uow import make_uow_factory
 from app.infrastructure.observability.logging import configure_logging
+from app.infrastructure.observability.metrics import start_metrics_server
 from app.infrastructure.senders import create_sender
 from app.workers.consumers.common import PoisonMessageError, ReliableConsumer, run_until_stopped
 
@@ -76,6 +77,7 @@ async def main() -> None:
     settings = get_settings()
     configure_logging(settings.log_level, json=settings.log_json)
     broker, engine = build(settings)
+    start_metrics_server(settings.metrics_port)
     try:
         await run_until_stopped(broker, "notification_worker")
     finally:

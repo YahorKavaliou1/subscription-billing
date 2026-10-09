@@ -8,7 +8,11 @@ from app.application.dto import OutboxEventInfo, OutboxMessage, PendingEvent
 from app.domain.enums import OutboxStatus
 from app.infrastructure.db.models import OutboxEventModel
 from app.infrastructure.db.repositories._common import flush
-from app.infrastructure.observability.correlation import CORRELATION_ID_KEY, get_correlation_id
+from app.infrastructure.observability.correlation import (
+    CORRELATION_ID_KEY,
+    get_correlation_id,
+    new_correlation_id,
+)
 
 
 class SqlOutboxRepository:
@@ -17,10 +21,9 @@ class SqlOutboxRepository:
 
     async def add(self, message: OutboxMessage) -> uuid.UUID:
         headers = dict(message.headers)
-        correlation_id = get_correlation_id()
-        if correlation_id and CORRELATION_ID_KEY not in headers:
-            # Lets consumers log under the id of the HTTP request that caused the event
-            headers[CORRELATION_ID_KEY] = correlation_id
+        # The id of the HTTP request that caused the event, so relay and consumers log
+        # under it. Without a request (scheduler reminders) the event starts its own trace.
+        headers.setdefault(CORRELATION_ID_KEY, get_correlation_id() or new_correlation_id())
         event_id = uuid.uuid4()
         self._session.add(
             OutboxEventModel(

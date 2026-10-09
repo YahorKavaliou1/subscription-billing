@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     log_level: LogLevel = "INFO"
     log_json: bool = True
 
+    # --- Workers: port of the Prometheus /metrics endpoint (0 = disabled).
+    # The API serves /metrics on its HTTP port instead.
+    metrics_port: int = Field(default=9100, ge=0, le=65535)
+
     # --- Outbox relay
     relay_batch_size: int = Field(default=100, ge=1)
     relay_poll_interval_seconds: float = Field(default=0.5, gt=0)

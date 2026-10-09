@@ -12,6 +12,7 @@ dead-lettering, so no extra state is needed.
 import asyncio
 import json
 import signal
+import time
 from collections.abc import Awaitable, Callable, Mapping
 from contextlib import suppress
 from typing import Any
@@ -22,6 +23,10 @@ from pydantic import ValidationError
 
 from app.infrastructure.observability.correlation import bind_correlation_id, clear_correlation_id
 from app.infrastructure.observability.logging import get_logger
+from app.infrastructure.observability.metrics import (
+    CONSUMER_MESSAGES,
+    CONSUMER_PROCESSING_DURATION,
+)
 
 PARKING_EXCHANGE = "billing.parking"
 log = get_logger("app.workers.consumers")
@@ -68,6 +73,8 @@ class ReliableConsumer:
         event_type = event_type_of(raw.type, headers, raw.routing_key or "")
         bind_correlation_id(raw.correlation_id or None)
         context = {"message_id": raw.message_id, "event_type": event_type, "attempt": attempt}
+        started = time.perf_counter()
+        result = "processed"
         try:
             if not raw.message_id:
                 raise PoisonMessageError("message without message_id")
@@ -78,19 +85,27 @@ class ReliableConsumer:
             outcome = await process(event_type, raw.message_id, payload, final)
         except (PoisonMessageError, ValidationError) as exc:
             await self._park(message, headers, repr(exc))
+            result = "parked"
             log.error("message.parked", reason="poison", error=repr(exc), **context)
         except Exception as exc:
             if final:
                 await self._park(message, headers, repr(exc))
+                result = "parked"
                 log.error("message.parked", reason="max_attempts", error=repr(exc), **context)
             else:
                 # Dead-lettered to the retry queue, comes back after its TTL
                 await message.nack(requeue=False)
+                result = "retry"
                 log.warning("message.retry_scheduled", error=repr(exc), **context)
         else:
             await message.ack()
+            result = str(outcome)  # processed / duplicate / skipped
             log.info("message.processed", outcome=outcome, **context)
         finally:
+            CONSUMER_MESSAGES.labels(queue=self._queue, result=result).inc()
+            CONSUMER_PROCESSING_DURATION.labels(queue=self._queue).observe(
+                time.perf_counter() - started
+            )
             clear_correlation_id()
 
     async def _park(self, message: RabbitMessage, headers: dict[str, Any], error: str) -> None:

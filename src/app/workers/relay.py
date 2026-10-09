@@ -20,6 +20,11 @@ from app.infrastructure.broker.rabbit import (
 from app.infrastructure.db.session import create_engine, create_session_factory
 from app.infrastructure.db.uow import make_uow_factory
 from app.infrastructure.observability.logging import configure_logging, get_logger
+from app.infrastructure.observability.metrics import (
+    RELAY_BROKER_UNAVAILABLE,
+    RELAY_EVENTS,
+    start_metrics_server,
+)
 from app.workers.polling import PollingWorker
 
 log = get_logger("app.workers.relay")
@@ -39,6 +44,7 @@ class RelayWorker(PollingWorker):
     async def iterate(self) -> float:
         result = await self._relay.run_once()
         self._log(result)
+        self._count(result)
         if result.broker_unavailable:
             delay = self._broker_backoff
             self._broker_backoff = min(self._broker_backoff * 2, BROKER_RETRY_MAX_SECONDS)
@@ -48,6 +54,15 @@ class RelayWorker(PollingWorker):
         if result.claimed >= self._settings.relay_batch_size:
             return 0
         return self._settings.relay_poll_interval_seconds
+
+    @staticmethod
+    def _count(result: RelayResult) -> None:
+        RELAY_EVENTS.labels(result="published").inc(result.published)
+        # `failed` includes events that went dead on this attempt
+        RELAY_EVENTS.labels(result="failed").inc(result.failed - result.dead)
+        RELAY_EVENTS.labels(result="dead").inc(result.dead)
+        if result.broker_unavailable:
+            RELAY_BROKER_UNAVAILABLE.inc()
 
     @staticmethod
     def _log(result: RelayResult) -> None:
@@ -99,6 +114,7 @@ async def main() -> None:
     )
     worker = RelayWorker(relay, settings)
     worker.install_signal_handlers()
+    start_metrics_server(settings.metrics_port)
 
     try:
         if await connect_with_retry(broker, worker.stopping):

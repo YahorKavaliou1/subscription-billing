@@ -16,6 +16,7 @@ from typing import Any
 import aio_pika
 import pytest
 from faststream.rabbit import Channel, ExchangeType, RabbitBroker, RabbitExchange
+from prometheus_client import REGISTRY
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 
@@ -152,6 +153,11 @@ async def pay(
     return result.payment.id
 
 
+def consumed(queue: str, result: str) -> float:
+    labels = {"queue": queue, "result": result}
+    return REGISTRY.get_sample_value("billing_consumer_messages_total", labels) or 0.0
+
+
 async def queue_depth(rabbitmq_url: str, name: str) -> int:
     connection = await aio_pika.connect(rabbitmq_url)
     async with connection:
@@ -165,6 +171,8 @@ async def test_successful_payment_notifies_user_and_renews_subscription(
     uow_factory: UnitOfWorkFactory, relay: OutboxRelay, sender: RecordingSender
 ) -> None:
     payment_id = await pay(uow_factory, PaymentStatus.SUCCEEDED, "pi_e2e_ok")
+    sent_before = consumed("notifications.send", "processed")
+    renewed_before = consumed("subscriptions.renewal", "processed")
 
     assert (await relay.run_once()).published == 1
 
@@ -187,6 +195,8 @@ async def test_successful_payment_notifies_user_and_renews_subscription(
     assert view.notification is not None
     assert view.notification.status is NotificationStatus.SENT
     assert [n.event_name.value for n in sender.sent] == ["payment.succeeded"]
+    assert consumed("notifications.send", "processed") - sent_before == 1
+    assert consumed("subscriptions.renewal", "processed") - renewed_before == 1
 
     subscription = await GetSubscription(uow_factory).execute("sub-1")
     scheduled = [n for n in subscription.notifications if n.status is NotificationStatus.SCHEDULED]
@@ -235,6 +245,8 @@ async def test_failing_channel_is_retried_then_parked(
 ) -> None:
     sender.fail = True
     payment_id = await pay(uow_factory, PaymentStatus.FAILED, "pi_e2e_fail")
+    retries_before = consumed("notifications.send", "retry")
+    parked_before = consumed("notifications.send", "parked")
     await relay.run_once()
 
     async def parked() -> bool:
@@ -248,6 +260,8 @@ async def test_failing_channel_is_retried_then_parked(
     assert view.notification.attempts == MAX_ATTEMPTS
     assert view.notification.last_error == "ConnectionError('channel down')"
     assert await queue_depth(rabbitmq_url, "notifications.send") == 0
+    assert consumed("notifications.send", "retry") - retries_before == MAX_ATTEMPTS - 1
+    assert consumed("notifications.send", "parked") - parked_before == 1
 
 
 @pytest.mark.usefixtures("consumers")

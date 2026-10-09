@@ -12,6 +12,11 @@ from app.config import Settings, get_settings
 from app.infrastructure.db.session import create_engine, create_session_factory
 from app.infrastructure.db.uow import make_uow_factory
 from app.infrastructure.observability.logging import configure_logging, get_logger
+from app.infrastructure.observability.metrics import (
+    SCHEDULER_REMINDERS_ENQUEUED,
+    SCHEDULER_SUBSCRIPTIONS_EXPIRED,
+    start_metrics_server,
+)
 from app.workers.polling import PollingWorker
 
 log = get_logger("app.workers.scheduler")
@@ -27,6 +32,8 @@ class SchedulerWorker(PollingWorker):
 
     async def iterate(self) -> float:
         result = await self._scheduler.run_once()
+        SCHEDULER_REMINDERS_ENQUEUED.inc(result.enqueued)
+        SCHEDULER_SUBSCRIPTIONS_EXPIRED.inc(result.expired_subscriptions)
         if result.enqueued:
             log.info(
                 "scheduler.batch",
@@ -51,6 +58,7 @@ async def main() -> None:
     )
     worker = SchedulerWorker(scheduler, settings)
     worker.install_signal_handlers()
+    start_metrics_server(settings.metrics_port)
     try:
         log.info("scheduler.started", poll_interval=settings.scheduler_poll_interval_seconds)
         await worker.run()

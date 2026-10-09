@@ -3,6 +3,7 @@
 Third-party libraries (uvicorn, sqlalchemy, faststream, aio-pika) log via the
 standard ``logging`` module; their records go through the same processors, so
 the whole process emits one format: JSON in containers, colored console locally.
+Every record carries ``correlation_id`` when one is bound (see correlation.py).
 """
 
 import logging
@@ -18,6 +19,20 @@ _THIRD_PARTY_LEVELS = {
     "aio_pika": logging.WARNING,
     "aiormq": logging.WARNING,
 }
+
+# Loggers that install their own handlers (plain text, colors), disable propagation or
+# pin their own level; their records are routed to the root handler at the root level
+_SELF_HANDLED_LOGGERS = (
+    "uvicorn",
+    "uvicorn.error",
+    "uvicorn.access",
+    "faststream",
+    "faststream.access",
+    "faststream.access.rabbit",
+)
+
+# `extra` fields of stdlib records worth keeping (FastStream adds its message context)
+_KEPT_EXTRA_FIELDS = ("queue", "exchange", "message_id")
 
 
 def _shared_processors() -> list[Processor]:
@@ -49,7 +64,8 @@ def configure_logging(level: str = "INFO", *, json: bool = True) -> None:
     )
 
     formatter = structlog.stdlib.ProcessorFormatter(
-        foreign_pre_chain=shared,
+        # Records from stdlib loggers (uvicorn, FastStream, ...) also keep their known extras
+        foreign_pre_chain=[*shared, structlog.stdlib.ExtraAdder(allow=_KEPT_EXTRA_FIELDS)],
         processors=[structlog.stdlib.ProcessorFormatter.remove_processors_meta, renderer],
     )
     handler = logging.StreamHandler(sys.stdout)
@@ -60,11 +76,11 @@ def configure_logging(level: str = "INFO", *, json: bool = True) -> None:
     root.addHandler(handler)
     root.setLevel(level.upper())
 
-    # uvicorn installs its own handlers; route its records through ours instead
-    for name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
-        uvicorn_logger = logging.getLogger(name)
-        uvicorn_logger.handlers.clear()
-        uvicorn_logger.propagate = True
+    for name in _SELF_HANDLED_LOGGERS:
+        library_logger = logging.getLogger(name)
+        library_logger.handlers.clear()
+        library_logger.propagate = True
+        library_logger.setLevel(logging.NOTSET)  # e.g. "faststream" pins INFO on import
 
     for name, min_level in _THIRD_PARTY_LEVELS.items():
         logging.getLogger(name).setLevel(max(min_level, root.level))

@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, FastAPI
 from app.api.deps import require_api_key
 from app.api.errors import register_error_handlers
 from app.api.middleware import RequestContextMiddleware
-from app.api.routers import health, payments, subscriptions
+from app.api.routers import health, metrics, payments, subscriptions
 from app.bootstrap import Container, build_container
 from app.config import get_settings
 from app.infrastructure.observability.logging import configure_logging, get_logger
@@ -47,6 +47,7 @@ def create_app(container: Container | None = None) -> FastAPI:
     api_v1.include_router(payments.router)
     app.include_router(api_v1)
     app.include_router(health.router)
+    app.include_router(metrics.router)
 
     register_error_handlers(app)
     app.add_middleware(RequestContextMiddleware)
@@ -54,13 +55,21 @@ def create_app(container: Container | None = None) -> FastAPI:
 
 
 def run() -> None:
-    """Entry point for `billing-api` (local runs; compose calls uvicorn directly)."""
+    """Entry point: `python -m app.api.main` (compose) or `billing-api`."""
     import uvicorn
 
+    settings = get_settings()
+    # Before uvicorn starts, so its own startup messages are JSON too
+    configure_logging(settings.log_level, json=settings.log_json)
     uvicorn.run(
         "app.api.main:create_app",
         factory=True,
         host="0.0.0.0",  # noqa: S104  # inside a container
         port=8000,
-        log_config=None,  # logging is configured by the app
+        log_config=None,  # keep the logging configured above
+        access_log=False,  # RequestContextMiddleware writes the access log
     )
+
+
+if __name__ == "__main__":
+    run()

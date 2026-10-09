@@ -271,3 +271,47 @@ Use-case tests run against in-memory fakes (`tests/unit/fakes.py`) that commit s
 | `test_migrations.py` | Migrations match the ORM models; downgrade and upgrade are repeatable |
 | `test_schema.py` | Database constraints: CHECKs, unique keys, foreign keys, exact decimals, optimistic locking |
 | `test_use_cases_db.py` | Use cases end to end: a crash between payment and event leaves neither; concurrent duplicate payments and subscription updates produce exactly one consistent result; delivery status of a payment |
+
+## Observability
+
+### Logs
+
+Every process writes one JSON object per line to stdout. Application logs, uvicorn and FastStream all use the same format (`APP_LOG_JSON=false` gives colored console output instead).
+
+Each record carries a `correlation_id`, so one request can be traced across all processes:
+
+1. The API takes it from the `X-Request-ID` header or generates one, and returns it in the response.
+2. It is stored with the outbox event and sent as the AMQP `correlation_id`.
+3. The relay and the consumers log under the same id. Events not caused by a request (scheduler reminders) get their own id.
+
+```bash
+docker compose logs | grep <request-id>
+```
+
+| Event | Process | Meaning |
+|---|---|---|
+| `http.request` | api | access log: method, route, status, duration |
+| `event.published` | outbox-relay | broker confirmed an outbox event |
+| `event.publish_rejected` | outbox-relay | broker rejected it; the relay retries with backoff |
+| `relay.broker_unavailable` | outbox-relay | RabbitMQ unreachable; events wait in the outbox |
+| `scheduler.batch` | scheduler | due reminders moved to the outbox |
+| `notification.sent` | notification-worker | notification delivered |
+| `message.processed` | consumers | handled: `processed` / `duplicate` / `skipped` |
+| `message.retry_scheduled` | consumers | failed; redelivered after the retry delay |
+| `message.parked` | consumers | poison message or out of attempts; moved to `*.parking` |
+
+FastStream's per-message `Received` / `Processed` lines are shown only with `APP_LOG_LEVEL=DEBUG`.
+
+### Metrics
+
+Prometheus format. The API serves `GET /metrics` on port 8000 (no API key, not in OpenAPI). Workers serve it on `APP_METRICS_PORT` (default `9100`, `0` disables it) inside the compose network.
+
+| Metric | Source | What to watch |
+|---|---|---|
+| `billing_http_requests_total`, `billing_http_request_duration_seconds` | api | error rate, latency per route |
+| `billing_outbox_events{status}` | api (from DB) | `dead` > 0 needs attention |
+| `billing_outbox_oldest_pending_age_seconds` | api (from DB) | grows while the relay or RabbitMQ is down |
+| `billing_notifications{status}` | api (from DB) | `failed` notifications |
+| `billing_relay_events_total{result}`, `billing_relay_broker_unavailable_total` | outbox-relay | publish failures, broker outages |
+| `billing_scheduler_reminders_enqueued_total`, `billing_scheduler_subscriptions_expired_total` | scheduler | reminder throughput |
+| `billing_consumer_messages_total{queue,result}`, `billing_consumer_processing_seconds` | consumers | retries and parked messages |

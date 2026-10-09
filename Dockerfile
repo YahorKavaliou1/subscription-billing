@@ -9,7 +9,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY --from=ghcr.io/astral-sh/uv:0.11 /uv /usr/local/bin/uv
 WORKDIR /app
 
-# Слой зависимостей кэшируется отдельно от кода
+# Dependency layer is cached separately from the source code
 FROM base AS deps
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
@@ -24,4 +24,4 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 RUN useradd --system --uid 10001 app
 USER app
-EXPOSE 8000
+EXPOSE 8000 9100
