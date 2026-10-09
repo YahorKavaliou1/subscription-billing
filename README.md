@@ -185,6 +185,8 @@ uv run python -m app.api.export_openapi --check     # docs/openapi.json matches 
 
 Without uv: `pip install -r requirements.txt -r requirements-dev.txt` (both files are exported from `uv.lock`).
 
+Shortcuts for all common commands are in the `Makefile`: run `make` to see them (`make up`, `make check`, `make test`, `make e2e`, ...).
+
 ## Configuration
 
 Settings come from environment variables with the `APP_` prefix. See `.env.example` for the full list.
