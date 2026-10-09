@@ -64,6 +64,17 @@ services:
     <<: *app
     command: ["python", "-m", "app.api.main"]
     ports: ["8000:8000"]
+    healthcheck:
+      # The image has no curl; urlopen raises (exit 1) on 503 or connection errors
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/health/ready', timeout=2)
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
     depends_on:
       migrate: { condition: service_completed_successfully }
 

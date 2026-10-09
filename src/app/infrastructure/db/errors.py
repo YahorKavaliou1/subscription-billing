@@ -3,11 +3,20 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, InterfaceError, OperationalError
 
 from app.application.ports import DuplicateKeyError
 
 UNIQUE_VIOLATION = "23505"
+
+# PostgreSQL is unreachable (down, restarting, network): connection refused or dropped,
+# timeouts. A temporary condition, unlike a bug or a constraint violation.
+DATABASE_UNAVAILABLE_ERRORS: tuple[type[Exception], ...] = (
+    OperationalError,
+    InterfaceError,
+    OSError,  # includes ConnectionRefusedError raised while opening a connection
+    TimeoutError,
+)
 
 
 def _sqlstate(error: IntegrityError) -> str | None:

@@ -8,6 +8,7 @@ from typing import Any
 
 import httpx
 import pytest
+from sqlalchemy.exc import OperationalError
 
 from app.api.main import create_app
 from app.bootstrap import Container
@@ -278,3 +279,27 @@ class TestCrossCutting:
 
         assert "APIKeyHeader" in schema["components"]["securitySchemes"]
         assert "/api/v1/payments" in schema["paths"]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        ConnectionRefusedError(111, "Connect call failed"),
+        OperationalError("SELECT 1", {}, Exception("server closed the connection")),
+    ],
+)
+async def test_database_outage_is_503_with_retry_after(error: Exception) -> None:
+    def broken_uow() -> Any:
+        raise error
+
+    container = Container(
+        api_key=API_KEY, uow_factory=broken_uow, policy=NotificationSchedulePolicy([3, 1, 0])
+    )
+    transport = httpx.ASGITransport(app=create_app(container), raise_app_exceptions=False)
+    async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.post("/api/v1/payments", json=payment_body(), headers=AUTH)
+
+    assert response.status_code == 503
+    assert response.headers["content-type"] == "application/problem+json"
+    assert response.headers["retry-after"] == "5"
+    assert response.json()["status"] == 503

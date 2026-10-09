@@ -20,9 +20,11 @@ from app.domain.errors import (
     InvalidValueError,
     NotFoundError,
 )
+from app.infrastructure.db.errors import DATABASE_UNAVAILABLE_ERRORS
 from app.infrastructure.observability.logging import get_logger
 
 PROBLEM_JSON = "application/problem+json"
+RETRY_AFTER_SECONDS = 5
 log = get_logger(__name__)
 
 
@@ -95,6 +97,17 @@ async def _handle_http(request: Request, exc: Exception) -> JSONResponse:
     return problem_response(request, HTTPStatus(exc.status_code), str(exc.detail))
 
 
+async def _handle_unavailable(request: Request, exc: Exception) -> JSONResponse:
+    # Nothing was committed: the client can safely retry (payments are idempotent)
+    log.warning("request.dependency_unavailable", error=repr(exc))
+    return problem_response(
+        request,
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        "Database is temporarily unavailable, retry later",
+        headers={"Retry-After": str(RETRY_AFTER_SECONDS)},
+    )
+
+
 async def _handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
     log.exception("request.failed")
     return problem_response(request, HTTPStatus.INTERNAL_SERVER_ERROR)
@@ -106,4 +119,6 @@ def register_error_handlers(app: FastAPI) -> None:
     app.add_exception_handler(UnauthorizedError, _handle_unauthorized)
     app.add_exception_handler(RequestValidationError, _handle_validation)
     app.add_exception_handler(StarletteHTTPException, _handle_http)
+    for error_type in DATABASE_UNAVAILABLE_ERRORS:
+        app.add_exception_handler(error_type, _handle_unavailable)
     app.add_exception_handler(Exception, _handle_unexpected)

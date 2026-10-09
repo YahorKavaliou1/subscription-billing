@@ -272,6 +272,22 @@ Use-case tests run against in-memory fakes (`tests/unit/fakes.py`) that commit s
 | `test_schema.py` | Database constraints: CHECKs, unique keys, foreign keys, exact decimals, optimistic locking |
 | `test_use_cases_db.py` | Use cases end to end: a crash between payment and event leaves neither; concurrent duplicate payments and subscription updates produce exactly one consistent result; delivery status of a payment |
 
+### End-to-end tests
+
+`tests/e2e` treats the running docker compose stack as a black box: it calls the API over HTTP and controls containers with `docker compose`.
+
+```bash
+scripts/e2e.sh            # build + start the stack, wait until ready, run tests/e2e
+scripts/e2e.sh -k smoke   # pass extra pytest arguments
+scripts/e2e.sh --down     # remove containers and volumes afterwards
+```
+
+- **Smoke**: payment → event → notification → renewal, idempotent retries, expiry reminder sent by the scheduler, metrics.
+- **Faults**: RabbitMQ, the relay, a consumer or Postgres goes down. Nothing is lost, the API answers `503` with `Retry-After` while the database is unavailable, and every process reconnects by itself.
+- **Crashes**: `SIGKILL` of the relay or a consumer while 30 payments are in flight. Every payment is delivered, and the subscription is renewed exactly 30 times: redelivered events are deduplicated.
+
+Fault tests stop and kill containers. Run them against a local or CI stack only. A plain `uv run pytest` skips `tests/e2e` unless `E2E_BASE_URL` is set. CI runs them in the `e2e` job.
+
 ## Observability
 
 ### Logs

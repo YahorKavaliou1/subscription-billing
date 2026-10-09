@@ -9,6 +9,7 @@ from app.api.deps import require_api_key
 from app.api.errors import register_error_handlers
 from app.api.middleware import RequestContextMiddleware
 from app.api.routers import health, metrics, payments, subscriptions
+from app.api.schemas.common import Problem
 from app.bootstrap import Container, build_container
 from app.config import get_settings
 from app.infrastructure.observability.logging import configure_logging, get_logger
@@ -42,7 +43,15 @@ def create_app(container: Container | None = None) -> FastAPI:
     )
     app.state.container = container
 
-    api_v1 = APIRouter(prefix="/api/v1", dependencies=[Depends(require_api_key)])
+    api_v1 = APIRouter(
+        prefix="/api/v1",
+        dependencies=[Depends(require_api_key)],
+        # Common to every endpoint
+        responses={
+            401: {"model": Problem, "description": "Missing or invalid X-API-Key"},
+            503: {"model": Problem, "description": "Database unavailable; retry later"},
+        },
+    )
     api_v1.include_router(subscriptions.router)
     api_v1.include_router(payments.router)
     app.include_router(api_v1)
